@@ -1,34 +1,20 @@
 import json
+from pathlib import Path
 
 import httpx
 import pytest
 
-from research_forest.llm import LLM, Backend, JsonCache, strict_schema
+from research_forest.config import Settings
+from research_forest.llm import LLM, Backend, JsonCache, TransientLLMError, make_backend
+from research_forest.llm import base as base_mod
 from research_forest.llm import cli as cli_mod
-from research_forest.llm.cli import ClaudeCodeBackend
-from research_forest.llm.openai_compat import OpenAIBackend
-from research_forest.models import Extraction, RefinePlan, Scope
+from research_forest.llm.base import parse_json
+from research_forest.llm.cli import ClaudeCodeBackend, CodexBackend
+from research_forest.llm.openai_compat import DEFAULT_MODEL, OpenAIBackend
+from research_forest.models import Scope
 
-
-def walk(node):
-    if isinstance(node, dict):
-        yield node
-        for v in node.values():
-            yield from walk(v)
-    elif isinstance(node, list):
-        for v in node:
-            yield from walk(v)
-
-
-@pytest.mark.parametrize("model", [Scope, Extraction, RefinePlan])
-def test_strict_schema(model):
-    schema = strict_schema(model)
-    assert "$defs" not in schema
-    for node in walk(schema):
-        assert "$ref" not in node and "default" not in node
-        if node.get("type") == "object":
-            assert node["additionalProperties"] is False
-            assert set(node["required"]) == set(node["properties"])
+SCOPE = {"title": "t", "summary": "s", "search_queries": ["q"], "seed_papers": [], "include_criteria": "i",
+         "exclude_criteria": "e", "year_min": None}
 
 
 class Scripted(Backend):
@@ -39,11 +25,31 @@ class Scripted(Backend):
 
     async def generate(self, system, user, schema, schema_name):
         self.prompts.append(user)
-        return self.outputs.pop(0)
+        out = self.outputs.pop(0)
+        if isinstance(out, Exception):
+            raise out
+        return out
 
 
-SCOPE = {"title": "t", "summary": "s", "search_queries": ["q"], "seed_papers": [], "include_criteria": "i",
-         "exclude_criteria": "e", "year_min": None}
+@pytest.fixture(autouse=True)
+def no_backoff(monkeypatch):
+    async def instant(_s):
+        return None
+    monkeypatch.setattr(base_mod.asyncio, "sleep", instant)
+
+
+@pytest.mark.parametrize("text", [
+    json.dumps(SCOPE),
+    "```json\n" + json.dumps(SCOPE) + "\n```",
+    "Here you go: " + json.dumps(SCOPE) + " hope it helps",
+])
+def test_parse_json_variants(text):
+    assert parse_json(text)["title"] == "t"
+
+
+def test_parse_json_rejects_garbage():
+    with pytest.raises(ValueError):
+        parse_json("no json here")
 
 
 async def test_retry_on_invalid_output_then_cache(tmp_path):
@@ -56,10 +62,43 @@ async def test_retry_on_invalid_output_then_cache(tmp_path):
     assert again == scope and len(backend.prompts) == 2
 
 
+async def test_cache_bypass_and_key_sensitivity(tmp_path):
+    backend = Scripted([json.dumps(SCOPE)] * 3)
+    llm = LLM(backend, cache=JsonCache(tmp_path / "c.db"))
+    await llm.json(Scope, "sys", "user")
+    await llm.json(Scope, "sys", "user", use_cache=False)
+    await llm.json(Scope, "other system", "user")
+    assert len(backend.prompts) == 3
+
+
+async def test_transient_errors_are_retried():
+    llm = LLM(Scripted([TransientLLMError("429"), json.dumps(SCOPE)]), retries=1)
+    assert (await llm.json(Scope, "s", "u")).title == "t"
+
+
 async def test_gives_up_after_retries():
     llm = LLM(Scripted(["{}", "{}"]), retries=1)
     with pytest.raises(RuntimeError, match="Scope"):
         await llm.json(Scope, "sys", "user")
+
+
+async def test_oversized_output_is_rejected():
+    llm = LLM(Scripted(["x" * (base_mod.MAX_OUTPUT_CHARS + 1)]), retries=0)
+    with pytest.raises(RuntimeError, match="too large"):
+        await llm.json(Scope, "s", "u")
+
+
+async def test_dict_output_from_cli_backends_is_validated():
+    llm = LLM(Scripted([{"title": "only title"}]), retries=0)
+    with pytest.raises(RuntimeError):
+        await llm.json(Scope, "s", "u")
+
+
+# ------------------------------------------------------------------- openai
+
+
+def openai_backend(handler, **kw):
+    return OpenAIBackend("http://llm.local/v1", "key", kw.pop("model", "m"), transport=httpx.MockTransport(handler))
 
 
 async def test_openai_backend_downgrades_response_format():
@@ -70,20 +109,56 @@ async def test_openai_backend_downgrades_response_format():
         seen.append(body.get("response_format", {}).get("type"))
         if body.get("response_format", {}).get("type") == "json_schema":
             return httpx.Response(400, json={"error": "response_format not supported"})
+        assert "JSON schema" in body["messages"][0]["content"]  # schema moved into the prompt
         return httpx.Response(200, json={"choices": [{"message": {"content": json.dumps(SCOPE)}}]})
 
-    backend = OpenAIBackend("http://llm.local/v1", "key", "m", transport=httpx.MockTransport(handler))
-    scope = await LLM(backend).json(Scope, "sys", "user")
-    assert scope.title == "t"
+    backend = openai_backend(handler)
+    assert (await LLM(backend).json(Scope, "sys", "user")).title == "t"
     assert seen == ["json_schema", "json_schema", "json_object"]
     await backend.aclose()
 
 
-async def test_claude_code_backend_reads_structured_output(monkeypatch):
+async def test_openai_backend_request_shape():
+    captured = {}
+
+    def handler(request):
+        captured["auth"] = request.headers["authorization"]
+        captured["body"] = json.loads(request.content)
+        return httpx.Response(200, json={"choices": [{"message": {"content": json.dumps(SCOPE)}}]})
+
+    backend = openai_backend(handler)
+    await LLM(backend).json(Scope, "sys", "user")
+    body = captured["body"]
+    assert captured["auth"] == "Bearer key"
+    assert body["response_format"]["json_schema"]["strict"] is True
+    assert [m["role"] for m in body["messages"]] == ["system", "user"]
+    await backend.aclose()
+
+
+async def test_openai_backend_transient_errors():
+    backend = openai_backend(lambda r: httpx.Response(503, text="busy"))
+    with pytest.raises(TransientLLMError):
+        await backend.generate("s", "u", {}, "S")
+    await backend.aclose()
+
+
+def test_openai_default_model_and_plain_http_warning(caplog):
+    assert OpenAIBackend("https://api.openai.com/v1", None, None).model == DEFAULT_MODEL == "gpt-6-luna"
+    OpenAIBackend("http://remote.example/v1", "secret", None)
+    assert "plain HTTP" in caplog.text
+    caplog.clear()
+    OpenAIBackend("http://localhost:8000/v1", "secret", None)
+    assert "plain HTTP" not in caplog.text
+
+
+# ---------------------------------------------------------------- CLI tools
+
+
+async def test_claude_code_backend_is_locked_down(monkeypatch):
     captured = {}
 
     async def fake_run(args, stdin, cwd, timeout):
-        captured.update(args=args, stdin=stdin)
+        captured.update(args=args, stdin=stdin, cwd=cwd)
         return json.dumps({"type": "result", "is_error": False, "result": "", "structured_output": SCOPE})
 
     monkeypatch.setattr(cli_mod, "_require", lambda b: b)
@@ -91,4 +166,83 @@ async def test_claude_code_backend_reads_structured_output(monkeypatch):
     scope = await LLM(ClaudeCodeBackend(model="opus")).json(Scope, "sys", "hello")
     assert scope.title == "t"
     args = captured["args"]
-    assert args[args.index("--tools") + 1] == "" and "--json-schema" in args and captured["stdin"] == "hello"
+    assert args[args.index("--tools") + 1] == ""
+    assert {"--strict-mcp-config", "--disable-slash-commands", "--no-session-persistence"} <= set(args)
+    assert args[args.index("--model") + 1] == "opus"
+    assert captured["stdin"] == "hello" and "rf-claude-" in captured["cwd"]
+    assert not Path(captured["cwd"]).exists()  # throwaway working dir is removed
+
+
+async def test_claude_code_error_envelope(monkeypatch):
+    async def fake_run(args, stdin, cwd, timeout):
+        return json.dumps({"is_error": True, "result": "rate limited"})
+
+    monkeypatch.setattr(cli_mod, "_require", lambda b: b)
+    monkeypatch.setattr(cli_mod, "_run", fake_run)
+    with pytest.raises(TransientLLMError, match="rate limited"):
+        await ClaudeCodeBackend().generate("s", "u", {}, "S")
+
+
+async def test_codex_backend(monkeypatch):
+    captured = {}
+
+    async def fake_run(args, stdin, cwd, timeout):
+        captured.update(args=args, stdin=stdin)
+        schema = json.loads(Path(args[args.index("--output-schema") + 1]).read_text())
+        assert schema["additionalProperties"] is False
+        Path(args[args.index("--output-last-message") + 1]).write_text(json.dumps(SCOPE))
+        return ""
+
+    monkeypatch.setattr(cli_mod, "_require", lambda b: b)
+    monkeypatch.setattr(cli_mod, "_run", fake_run)
+    assert (await LLM(CodexBackend(model="gpt-6-luna")).json(Scope, "SYS", "USER")).title == "t"
+    args = captured["args"]
+    assert args[args.index("--sandbox") + 1] == "read-only" and args[-1] == "-"
+    assert captured["stdin"].startswith("SYS") and captured["stdin"].endswith("USER")
+
+
+async def test_codex_without_output_is_transient(monkeypatch):
+    async def fake_run(args, stdin, cwd, timeout):
+        return ""
+
+    monkeypatch.setattr(cli_mod, "_require", lambda b: b)
+    monkeypatch.setattr(cli_mod, "_run", fake_run)
+    with pytest.raises(TransientLLMError):
+        await CodexBackend().generate("s", "u", {"type": "object"}, "S")
+
+
+async def test_run_helper_reports_failures_and_timeouts(tmp_path):
+    import sys
+    out = await cli_mod._run([sys.executable, "-c", "import sys; print(sys.stdin.read().upper())"], "hi",
+                             str(tmp_path), 10)
+    assert out.strip() == "HI"
+    with pytest.raises(TransientLLMError, match="exited 3"):
+        await cli_mod._run([sys.executable, "-c", "raise SystemExit(3)"], "", str(tmp_path), 10)
+    with pytest.raises(TransientLLMError, match="timed out"):
+        await cli_mod._run([sys.executable, "-c", "import time; time.sleep(5)"], "", str(tmp_path), 0.3)
+
+
+def test_missing_cli_binary():
+    with pytest.raises(RuntimeError, match="not found"):
+        ClaudeCodeBackend(binary="definitely-not-installed-xyz")
+
+
+def test_make_backend_dispatch(monkeypatch):
+    monkeypatch.setattr(cli_mod, "_require", lambda b: b)
+    assert make_backend(Settings(backend="openai")).name == "openai"
+    assert make_backend(Settings(backend="claude-code")).name == "claude-code"
+    assert make_backend(Settings(backend="codex")).name == "codex"
+    with pytest.raises(ValueError):
+        make_backend(Settings(backend="nope"))  # type: ignore[arg-type]
+
+
+def test_settings_from_env(monkeypatch):
+    monkeypatch.setenv("RF_BACKEND", "codex")
+    monkeypatch.setenv("RF_TARGET_PAPERS", "42")
+    monkeypatch.setenv("RF_S2_RPS", "0.5")
+    monkeypatch.setenv("RF_FULLTEXT_ENABLED", "off")
+    monkeypatch.setenv("OPENAI_API_KEY", "k")
+    s = Settings.from_env(model="m", db_path=None)
+    assert (s.backend, s.target_papers, s.s2_rps, s.fulltext_enabled, s.openai_api_key, s.model) == \
+        ("codex", 42, 0.5, False, "k", "m")
+    assert s.db_path == "research.forest.db" and s.fulltext_allow_private is False

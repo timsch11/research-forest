@@ -7,6 +7,7 @@ from collections import defaultdict
 
 from ..models import Extraction, Grouping, MissingField, Relations
 from ..prompts import SYSTEM, extract_prompt, normalize_prompt, relate_prompt
+from ..safety import looks_like_injection
 from ..store import PaperRecord, pid
 from .context import Ctx
 
@@ -31,10 +32,14 @@ async def extract(ctx: Ctx, recs: list[PaperRecord], deep: bool = False) -> int:
 
     async def one(r: PaperRecord) -> None:
         cites = contexts.get(r.node, [])[:8]
+        if any(looks_like_injection(t) for t in (r.paper.title, r.paper.abstract, r.paper.tldr, *cites)):
+            ctx.log(f"warning: instruction-like text in metadata of {r.paper.title[:80]!r} (treated as data)")
         ex = await ctx.llm.json(Extraction, SYSTEM, extract_prompt(r.paper, cites))
         fields = ALL_FIELDS if deep else list(dict.fromkeys(ex.missing))
         if fields and ctx.finder:
             passages = await ctx.finder.find(r.paper, fields, ex.search_terms)
+            if any(looks_like_injection(t) for texts in passages.values() for t in texts):
+                ctx.log(f"warning: instruction-like text in full text of {r.paper.title[:80]!r} (treated as data)")
             if passages:
                 ex = await ctx.llm.json(Extraction, SYSTEM, extract_prompt(r.paper, cites, passages))
         apply_extraction(ctx, r.paper.id, ex)

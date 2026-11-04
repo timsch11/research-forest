@@ -12,12 +12,20 @@ const EDGE_LABEL = {
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 const css = (v) => getComputedStyle(document.documentElement).getPropertyValue(v).trim();
+const KIND_SET = new Set(KINDS);
+const kindOf = (k) => (KIND_SET.has(k) ? k : "paper");  // never interpolate unknown kinds into markup
+const safeUrl = (u) => { try { const x = new URL(u); return ["http:", "https:"].includes(x.protocol) ? x.href : null; } catch { return null; } };
+const extLink = (u, label) => (safeUrl(u) ? `<a href="${esc(safeUrl(u))}" target="_blank" rel="noopener noreferrer">${label}</a>` : "");
 
 const state = { project: null, view: "lineage", mode: "refine", graph: null, logSince: 0, polling: null, running: false };
 let cy = null;
 
 async function api(path, opts = {}) {
-  const res = await fetch(path, { headers: { "Content-Type": "application/json" }, ...opts });
+  const res = await fetch(path, { headers: { "Content-Type": "application/json" }, credentials: "same-origin", ...opts });
+  if (res.status === 401) {
+    $("status").textContent = "Not authorised — open the URL printed by `research-forest serve`.";
+    throw new Error("unauthorized");
+  }
   if (!res.ok) throw new Error((await res.json().catch(() => ({}))).detail || res.statusText);
   return res.json();
 }
@@ -64,7 +72,7 @@ function initCy() {
 async function loadProjects(selectId) {
   const projects = await api("/api/projects");
   $("project-select").innerHTML = projects.map((p) =>
-    `<option value="${p.id}">${esc(p.title || p.prompt).slice(0, 80)}</option>`).join("");
+    `<option value="${Number(p.id)}">${esc(String(p.title || p.prompt).slice(0, 80))}</option>`).join("");
   if (!projects.length) return showStart();
   openProject(selectId ?? projects[0].id);
 }
@@ -221,15 +229,15 @@ async function showNode(id) {
     ? `<h4>${title}</h4><ul>${groups[key].map((nb) => `<li>${fmt(nb)}</li>`).join("")}</ul>` : "";
   const change = (nb) => `${nodeLink(nb.node, nb.label)}<span class="chip">${esc(nb.data.change_type)}</span>
       <br><span class="muted">${esc(nb.data.summary || "")}${nb.data.component ? ` (${esc(nb.data.component)})` : ""}</span>`;
-  let html = `<div class="kind" style="color:var(--${n.kind})">${n.kind}</div>`;
+  const kind = kindOf(n.kind);
+  let html = `<div class="kind" style="color:var(--${kind})">${esc(n.kind)}</div>`;
 
   if (n.kind === "paper") {
     const ex = n.extraction;
     html += `<h2>${esc(n.title)}</h2>
       <div class="muted">${esc([n.year, n.venue, `${n.citation_count} citations`].filter(Boolean).join(" · "))}</div>
       <div class="muted">${esc(n.authors.join(", "))}</div>
-      ${n.url ? `<p><a href="${esc(n.url)}" target="_blank" rel="noopener">Semantic Scholar ↗</a>
-        ${n.pdf_url ? ` · <a href="${esc(n.pdf_url)}" target="_blank" rel="noopener">PDF ↗</a>` : ""}</p>` : ""}
+      <p>${[extLink(n.url, "Semantic Scholar ↗"), extLink(n.pdf_url, "PDF ↗")].filter(Boolean).join(" · ")}</p>
       ${ex ? `<h4>Contribution</h4><p>${esc(ex.contribution)}</p>` : `<p>${esc(n.tldr || n.abstract || "")}</p>`}
       ${list("builds_on:out", "Builds on", change)}
       ${list("builds_on:in", "Built upon by", change)}
@@ -237,7 +245,7 @@ async function showNode(id) {
       ${list("uses:out", "Uses methods")}
       ${list("evaluates_on:out", "Datasets", (nb) => `${nodeLink(nb.node, nb.label)}<span class="chip">${esc(nb.data.usage || "")}</span>`)}
       ${ex?.limitations.length ? `<h4>Limitations</h4><ul>${ex.limitations.map((l) =>
-        `<li>${esc(l.text)}<span class="chip">${l.source}</span></li>`).join("")}</ul>` : ""}
+        `<li>${esc(l.text)}<span class="chip">${esc(l.source)}</span></li>`).join("")}</ul>` : ""}
       ${ex?.future_work.length ? `<h4>Future work</h4><ul>${ex.future_work.map((f) => `<li>${esc(f)}</li>`).join("")}</ul>` : ""}
       ${list("has_limitation:out", "Limitation themes")}
       ${list("addresses:out", "Addresses")}
@@ -271,8 +279,8 @@ async function runSearch() {
   if (q.length < 2) { $("results").innerHTML = ""; cy?.elements().removeClass("faded hit"); return; }
   const hits = await api(`/api/projects/${state.project}/search?q=${encodeURIComponent(q)}`);
   $("results").innerHTML = hits.map((h) =>
-    `<li data-node="${esc(h.node)}"><span class="dot" style="background:var(--${h.kind})"></span>${esc(h.title)}
-      <small>${esc(h.snippet).replace(/\[/g, "<b>").replace(/\]/g, "</b>")}</small></li>`).join("")
+    `<li data-node="${esc(h.node)}"><span class="dot" style="background:var(--${kindOf(h.kind)})"></span>${esc(h.title)}
+      <small>${esc(h.snippet).replace(/\x02/g, "<b>").replace(/\x03/g, "</b>")}</small></li>`).join("")
     || `<li class="muted">No matches</li>`;
   highlight(hits.map((h) => h.node));
 }
@@ -281,7 +289,7 @@ function renderAnswer(text) {
   // escape, then turn [n3](p:xyz) citations into labelled node links and **bold** into <b>
   const labels = Object.fromEntries((state.graph?.nodes || []).map((n) => [n.id, shortLabel(n)]));
   return esc(text)
-    .replace(/\[(n\d+)\]\(([pe]:[^)\s]+)\)/g, (_, h, id) => `<a data-node="${id}">[${esc(labels[id] || h)}]</a>`)
+    .replace(/\[(n\d+)\]\(([pe]:[\w.:-]+)\)/g, (_, h, id) => `<a data-node="${id}">[${esc(labels[id] || h)}]</a>`)
     .replace(/\*\*(.+?)\*\*/g, "<b>$1</b>")
     .replace(/\n/g, "<br>");
 }

@@ -18,6 +18,7 @@ from pydantic import BaseModel, ValidationError
 
 log = logging.getLogger(__name__)
 T = TypeVar("T", bound=BaseModel)
+MAX_OUTPUT_CHARS = 1_000_000
 
 
 class TransientLLMError(RuntimeError):
@@ -128,6 +129,8 @@ class LLM:
             try:
                 async with self._sem:
                     raw = await self.backend.generate(system, prompt, schema, model.__name__)
+                if isinstance(raw, str) and len(raw) > MAX_OUTPUT_CHARS:
+                    raise ValueError(f"output too large ({len(raw)} chars)")
                 data = parse_json(raw) if isinstance(raw, str) else raw
                 result = model.model_validate(data)
             except TransientLLMError as e:

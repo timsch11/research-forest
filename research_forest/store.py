@@ -17,6 +17,7 @@ from dataclasses import dataclass
 from typing import Any, Iterable, Iterator
 
 from .models import CitationLink, EntityKind, Extraction, Paper, Scope
+from .safety import sanitize
 
 SCHEMA = """
 PRAGMA journal_mode = WAL;
@@ -55,6 +56,14 @@ def pid(paper_id: str) -> str:
 
 def eid(entity_id: int) -> str:
     return f"e:{entity_id}"
+
+
+NODE_RE = re.compile(r"p:[A-Za-z0-9_.:-]{1,100}|e:\d{1,18}")
+SNIPPET_START, SNIPPET_END = "\x02", "\x03"  # highlight markers that cannot occur in sanitised text
+
+
+def valid_node(node: str) -> bool:
+    return bool(NODE_RE.fullmatch(node))
 
 
 def entity_key(name: str) -> str:
@@ -297,8 +306,9 @@ class Store:
             body = [p.abstract or "", p.tldr or "", " ".join(p.authors), p.venue or ""]
             if ex:
                 body += [ex.contribution, *(l.text for l in ex.limitations), *ex.future_work]
-            rows.append((r.node, project, "paper", p.title, "\n".join(body)))
-        rows += [(e["node"], project, e["kind"], e["name"], e["description"] or "") for e in self.entities(project)]
+            rows.append((r.node, project, "paper", sanitize(p.title), sanitize("\n".join(body))))
+        rows += [(e["node"], project, e["kind"], sanitize(e["name"]), sanitize(e["description"]))
+                 for e in self.entities(project)]
         with self.tx() as c:
             c.execute("DELETE FROM fts WHERE project = ?", (project,))
             c.executemany("INSERT INTO fts (node, project, kind, title, body) VALUES (?, ?, ?, ?, ?)", rows)
@@ -307,9 +317,9 @@ class Store:
                kinds: Iterable[str] | None = None) -> list[dict]:
         if not (query := fts_query(text, mode)):
             return []
-        sql = ("SELECT node, kind, title, snippet(fts, 4, '[', ']', '…', 14) AS snippet, bm25(fts, 5.0, 1.0) AS score "
+        sql = ("SELECT node, kind, title, snippet(fts, 4, ?, ?, '…', 14) AS snippet, bm25(fts, 5.0, 1.0) AS score "
                "FROM fts WHERE fts MATCH ? AND project = ?")
-        args: list[Any] = [query, project]
+        args: list[Any] = [SNIPPET_START, SNIPPET_END, query, project]
         if kinds:
             kinds = list(kinds)
             sql += f" AND kind IN ({','.join('?' * len(kinds))})"
@@ -341,6 +351,8 @@ class Store:
         return {"nodes": list(nodes.values()), "edges": edges}
 
     def node(self, project: int, node: str) -> dict | None:
+        if not valid_node(node):
+            return None
         if node.startswith("p:"):
             recs = self.papers(project, ids=[node[2:]])
             if not recs:
@@ -402,9 +414,10 @@ class Store:
         snap, dump = rows[0], json.loads(rows[0]["data"])
         with self.tx() as c:
             for table in ("papers", "entities", "edges"):
+                allowed = {r["name"] for r in c.execute(f"PRAGMA table_info({table})")}
                 c.execute(f"DELETE FROM {table} WHERE project = ?", (project,))
                 if dump[table]:
-                    cols = list(dump[table][0])
+                    cols = [k for k in dump[table][0] if k in allowed]
                     c.executemany(f"INSERT INTO {table} ({','.join(cols)}) VALUES ({','.join('?' * len(cols))})",
                                   [tuple(r[k] for k in cols) for r in dump[table]])
             if dump.get("scope"):

@@ -2,13 +2,37 @@
 
 Every LLM schema uses only required fields (nullable where optional) so it can
 be sent as a *strict* JSON schema to OpenAI-compatible APIs and Codex.
+
+LLM output is untrusted (it may be steered by injected text in papers), so all
+strings are sanitised and length-capped, lists are count-capped and numbers are
+clamped *after* validation — truncation instead of rejection keeps runs robust.
 """
 
 from __future__ import annotations
 
-from typing import Literal
+from typing import Annotated, Any, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import AfterValidator, BaseModel, Field
+
+from .safety import sanitize
+
+
+def _text(limit: int, keep_newlines: bool = False) -> Any:
+    return Annotated[str, AfterValidator(lambda v: sanitize(v, limit, keep_newlines))]
+
+
+def _capped(item: Any, count: int) -> Any:
+    return Annotated[list[item], AfterValidator(lambda v: v[:count])]
+
+
+def _clamped(lo: int, hi: int) -> Any:
+    return Annotated[int, AfterValidator(lambda v: max(lo, min(hi, v)))]
+
+
+Name = _text(120)
+Short = _text(300)
+Sentence = _text(500)
+Paragraph = _text(800)
 
 # ---------------------------------------------------------------- domain ----
 
@@ -46,18 +70,18 @@ CHANGE_TYPES: tuple[str, ...] = ChangeType.__args__  # type: ignore[attr-defined
 
 
 class Scope(BaseModel):
-    title: str = Field(description="Short name of the research area")
-    summary: str = Field(description="2-3 sentence description of the area's boundaries")
-    search_queries: list[str] = Field(description="4-8 diverse keyword queries for a paper search engine")
-    seed_papers: list[str] = Field(description="Exact titles of up to 8 foundational or landmark papers")
-    include_criteria: str
-    exclude_criteria: str
+    title: Name = Field(description="Short name of the research area")
+    summary: Paragraph = Field(description="2-3 sentence description of the area's boundaries")
+    search_queries: _capped(Name, 10) = Field(description="4-8 diverse keyword queries for a paper search engine")
+    seed_papers: _capped(Short, 10) = Field(description="Exact titles of up to 8 foundational or landmark papers")
+    include_criteria: Sentence
+    exclude_criteria: Sentence
     year_min: int | None = Field(description="Earliest publication year of interest, or null")
 
 
 class ScreenItem(BaseModel):
     ref: int
-    relevance: int = Field(description="0 = off-topic, 1 = tangential, 2 = relevant, 3 = core")
+    relevance: _clamped(0, 3) = Field(description="0 = off-topic, 1 = tangential, 2 = relevant, 3 = core")
 
 
 class Screening(BaseModel):
@@ -65,17 +89,17 @@ class Screening(BaseModel):
 
 
 class MethodItem(BaseModel):
-    name: str = Field(description="Canonical short name, e.g. 'FlashAttention'")
-    description: str = Field(description="One sentence")
+    name: Name = Field(description="Canonical short name, e.g. 'FlashAttention'")
+    description: Sentence = Field(description="One sentence")
 
 
 class DatasetItem(BaseModel):
-    name: str = Field(description="Canonical dataset/benchmark name, e.g. 'ImageNet-1k'")
+    name: Name = Field(description="Canonical dataset/benchmark name, e.g. 'ImageNet-1k'")
     usage: Literal["training", "evaluation", "both"]
 
 
 class LimitationItem(BaseModel):
-    text: str = Field(description="One concise sentence")
+    text: Sentence = Field(description="One concise sentence")
     source: Literal["stated", "citing", "inferred"] = Field(
         description="stated by the authors, reported by citing papers, or inferred by you")
 
@@ -84,15 +108,16 @@ MissingField = Literal["methods", "datasets", "limitations"]
 
 
 class Extraction(BaseModel):
-    contribution: str = Field(description="One sentence: the paper's key contribution")
-    methods_proposed: list[MethodItem]
-    methods_used: list[str] = Field(description="Names of existing methods the paper builds on or compares to")
-    datasets: list[DatasetItem]
-    limitations: list[LimitationItem]
-    future_work: list[str]
+    contribution: Paragraph = Field(description="One sentence: the paper's key contribution")
+    methods_proposed: _capped(MethodItem, 8)
+    methods_used: _capped(Name, 20) = Field(
+        description="Names of existing methods the paper builds on or compares to")
+    datasets: _capped(DatasetItem, 20)
+    limitations: _capped(LimitationItem, 10)
+    future_work: _capped(Sentence, 8)
     missing: list[MissingField] = Field(
         description="Fields for which the provided text was insufficient to answer confidently")
-    search_terms: list[str] = Field(
+    search_terms: _capped(_text(60), 8) = Field(
         description="Keywords likely to appear in the full-text passages that would fill the missing fields")
 
 
@@ -100,8 +125,8 @@ class Relation(BaseModel):
     ref: int
     builds_on: bool = Field(description="True only if the citing paper directly extends/modifies the cited work")
     change_type: ChangeType | None
-    component: str | None = Field(description="Which part of the cited work is changed, e.g. 'attention kernel'")
-    summary: str | None = Field(description="One sentence: what the citing paper changes relative to the cited one")
+    component: _text(160) | None = Field(description="Which part of the cited work is changed, e.g. 'attention kernel'")
+    summary: Sentence | None = Field(description="One sentence: what the citing paper changes relative to the cited one")
 
 
 class Relations(BaseModel):
@@ -109,7 +134,7 @@ class Relations(BaseModel):
 
 
 class Group(BaseModel):
-    canonical: str
+    canonical: Name
     members: list[int]
 
 
@@ -118,44 +143,45 @@ class Grouping(BaseModel):
 
 
 class Theme(BaseModel):
-    name: str = Field(description="Short label for a shared limitation")
-    description: str
+    name: Name = Field(description="Short label for a shared limitation")
+    description: Sentence
     papers: list[int] = Field(description="Refs of papers exhibiting this limitation")
     addressed_by: list[int] = Field(description="Refs of papers that (partially) address it")
 
 
 class OpenQuestion(BaseModel):
-    question: str
-    rationale: str
+    question: Short
+    rationale: Paragraph
     themes: list[int] = Field(description="Indices of the themes motivating this question")
     papers: list[int] = Field(description="Refs of the most relevant papers")
 
 
 class Synthesis(BaseModel):
-    themes: list[Theme]
-    questions: list[OpenQuestion]
+    themes: _capped(Theme, 20)
+    questions: _capped(OpenQuestion, 15)
 
 
 RefineAction = Literal[
     "search", "expand", "remove", "filter", "prune", "deepen", "rescope", "resynthesize"]
+MAX_REFINE_LIMIT = 50
 
 
 class RefineOp(BaseModel):
     action: RefineAction
-    query: str | None = Field(description="search: query; prune: criterion to REMOVE; rescope: new focus")
-    papers: list[int] = Field(description="Paper refs for expand/remove/deepen")
+    query: Short | None = Field(description="search: query; prune: criterion to REMOVE; rescope: new focus")
+    papers: _capped(int, 100) = Field(description="Paper refs for expand/remove/deepen")
     direction: Literal["references", "citations", "both"] | None
-    limit: int | None
+    limit: _clamped(1, MAX_REFINE_LIMIT) | None
     year_min: int | None
     year_max: int | None
-    min_citations: int | None
+    min_citations: _clamped(0, 10**7) | None
 
 
 class RefinePlan(BaseModel):
-    explanation: str
-    ops: list[RefineOp]
+    explanation: Paragraph
+    ops: _capped(RefineOp, 8)
 
 
 class Answer(BaseModel):
-    answer: str = Field(description="Markdown answer that cites nodes inline as [n12]")
-    nodes: list[str] = Field(description="Node handles (e.g. 'n12') supporting the answer")
+    answer: _text(6000, keep_newlines=True) = Field(description="Markdown answer that cites nodes inline as [n12]")
+    nodes: _capped(_text(12), 40) = Field(description="Node handles (e.g. 'n12') supporting the answer")

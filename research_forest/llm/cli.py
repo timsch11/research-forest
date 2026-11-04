@@ -1,7 +1,9 @@
 """Backends that shell out to the ``claude`` (Claude Code) and ``codex`` CLIs.
 
-Both run with tools disabled / a read-only sandbox in a throwaway working
-directory, so the agents cannot touch the user's files.
+Both run in a throwaway working directory. Claude Code runs with all tools, MCP
+servers and slash commands disabled. Codex runs in its read-only sandbox (no
+writes, no network); it can still *read* files, which is why its output is only
+ever used as schema-validated, length-capped data.
 """
 
 from __future__ import annotations
@@ -44,7 +46,9 @@ class ClaudeCodeBackend(Backend):
         self.model, self.timeout, self._bin = model, timeout, _require(binary)
 
     async def generate(self, system: str, user: str, schema: dict, schema_name: str) -> str | dict:
-        args = [self._bin, "-p", "--output-format", "json", "--tools", "", "--no-session-persistence",
+        # No tools, no MCP servers, no skills/slash commands: injected text has nothing to act with.
+        args = [self._bin, "-p", "--output-format", "json", "--tools", "", "--strict-mcp-config",
+                "--disable-slash-commands", "--no-session-persistence",
                 "--json-schema", json.dumps(schema), "--system-prompt", system]
         if self.model:
             args += ["--model", self.model]

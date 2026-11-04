@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 
 import httpx
 
@@ -11,6 +12,7 @@ from .base import Backend, TransientLLMError
 # Structured-output modes, from most to least constrained. Servers that reject a
 # mode (HTTP 400/422) are transparently downgraded to the next one.
 _MODES = ("strict", "schema", "object", "plain")
+log = logging.getLogger(__name__)
 DEFAULT_MODEL = "gpt-6-luna"
 
 
@@ -20,6 +22,9 @@ class OpenAIBackend(Backend):
     def __init__(self, base_url: str, api_key: str | None, model: str | None, timeout: float = 300.0,
                  transport: httpx.AsyncBaseTransport | None = None):
         self.model = model or DEFAULT_MODEL
+        host = httpx.URL(base_url).host
+        if api_key and httpx.URL(base_url).scheme == "http" and host not in ("localhost", "127.0.0.1", "::1"):
+            log.warning("sending the API key over plain HTTP to %s", host)
         headers = {"Authorization": f"Bearer {api_key}"} if api_key else {}
         self._client = httpx.AsyncClient(base_url=base_url.rstrip("/"), headers=headers, timeout=timeout,
                                          transport=transport)

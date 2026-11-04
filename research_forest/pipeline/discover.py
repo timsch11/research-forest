@@ -7,7 +7,7 @@ import math
 from collections import Counter
 from typing import Iterable, Literal
 
-from ..models import Scope, Screening
+from ..models import MAX_REFINE_LIMIT, Scope, Screening
 from ..prompts import SYSTEM, prune_prompt, rescope_prompt, scope_prompt, screen_prompt
 from .context import Ctx, chunks
 
@@ -127,13 +127,19 @@ async def snowball(ctx: Ctx, limit: int) -> list[str]:
     return select(ctx, limit, frequent)
 
 
+MAX_EXPAND_SEEDS = 10
+MAX_PAPERS_PER_OP = MAX_REFINE_LIMIT
+
+
 async def expand(ctx: Ctx, ids: list[str], direction: str, limit: int) -> list[str]:
+    """Grow the graph around seed papers. Fan-out is capped so one (possibly injected) op stays cheap."""
+    ids = ids[:MAX_EXPAND_SEEDS]
     directions = ["references", "citations"] if direction == "both" else [direction or "references"]
     pool: list[str] = []
     for d in directions:
         pool += await fetch_links(ctx, ids, d)  # type: ignore[arg-type]
     await screen(ctx, pool)
-    return select(ctx, limit * max(1, len(ids)), pool)
+    return select(ctx, min(MAX_PAPERS_PER_OP, limit * max(1, len(ids))), pool)
 
 
 async def prune(ctx: Ctx, criterion: str) -> list[str]:

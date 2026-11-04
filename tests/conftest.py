@@ -30,32 +30,40 @@ def s2_paper(pid: str, full: bool = True) -> dict:
     title, year, cites, _ = CORPUS[pid]
     d = {"paperId": pid, "title": title, "abstract": f"We study {title.lower()}.", "year": year,
          "venue": "NeurIPS", "authors": [{"name": "A. Author"}], "citationCount": cites,
-         "url": f"https://s2/{pid}", "externalIds": {"ArXiv": f"2000.{pid}"}}
+         "url": f"https://s2.example/{pid}",
+         "externalIds": {"ArXiv": f"2101.{list(CORPUS).index(pid):05d}"}}
     if full:
         d |= {"tldr": {"text": f"TLDR of {title}"}, "openAccessPdf": None}
     return d
+
+
+OVERRIDES: dict[str, dict] = {}  # per-test patches of S2 paper fields, keyed by paper id
+
+
+def s2_paper_patched(pid: str, full: bool = True) -> dict:
+    return s2_paper(pid, full) | OVERRIDES.get(pid, {})
 
 
 def s2_handler(request: httpx.Request) -> httpx.Response:
     path, params = request.url.path, request.url.params
     if path.endswith("/paper/search"):
         q = params["query"].lower()
-        hits = [s2_paper(p) for p, (t, *_rest) in CORPUS.items() if any(w in t.lower() for w in q.split())]
+        hits = [s2_paper_patched(p) for p, (t, *_rest) in CORPUS.items() if any(w in t.lower() for w in q.split())]
         return httpx.Response(200, json={"data": hits})
     if path.endswith("/paper/search/match"):
         q = params["query"].lower()
-        hits = [s2_paper(p) for p, (t, *_rest) in CORPUS.items() if t.lower() == q]
+        hits = [s2_paper_patched(p) for p, (t, *_rest) in CORPUS.items() if t.lower() == q]
         return httpx.Response(200 if hits else 404, json={"data": hits[:1]})
     if path.endswith("/paper/batch"):
         ids = json.loads(request.content)["ids"]
-        return httpx.Response(200, json=[s2_paper(i) if i in CORPUS else None for i in ids])
+        return httpx.Response(200, json=[s2_paper_patched(i) if i in CORPUS else None for i in ids])
     if m := re.search(r"/paper/([^/]+)/(references|citations)$", path):
         pid, direction = m.groups()
         if direction == "references":
-            rows = [{"citedPaper": s2_paper(r, False), "contexts": [f"{CORPUS[pid][0]} extends {CORPUS[r][0]}"],
+            rows = [{"citedPaper": s2_paper_patched(r, False), "contexts": [f"{CORPUS[pid][0]} extends {CORPUS[r][0]}"],
                      "intents": ["methodology"], "isInfluential": True} for r in CORPUS[pid][3]]
         else:
-            rows = [{"citingPaper": s2_paper(c, False), "contexts": [], "intents": [], "isInfluential": False}
+            rows = [{"citingPaper": s2_paper_patched(c, False), "contexts": [], "intents": [], "isInfluential": False}
                     for c, v in CORPUS.items() if pid in v[3]]
         return httpx.Response(200, json={"data": rows})
     if path.endswith("/snippet/search"):
@@ -71,9 +79,15 @@ class FakeBackend(Backend):
 
     def __init__(self):
         self.calls: list[tuple[str, str]] = []
+        self.systems: list[str] = []
+        self.next_plan: dict | None = None  # scripted RefinePlan for the next refine call
+        self.fail_on: str | None = None  # schema name that should raise
 
     async def generate(self, system: str, user: str, schema: dict, schema_name: str) -> str:
         self.calls.append((schema_name, user))
+        self.systems.append(system)
+        if schema_name == self.fail_on:
+            raise RuntimeError(f"forced failure for {schema_name}")
         refs = [int(i) for i in re.findall(r"^\[(\d+)\]", user, re.M)]
         handler = getattr(self, f"_{schema_name.lower()}")
         return json.dumps(handler(user, refs))
@@ -92,7 +106,7 @@ class FakeBackend(Backend):
     def _extraction(self, user, refs):
         title = re.search(r"^Title: (.*)$", user, re.M).group(1)
         name = title.split(":")[0]
-        gap_filled = "Full-text passages" in user
+        gap_filled = "full-text passages" in user.lower()
         return {"contribution": f"{name} makes attention efficient.",
                 "methods_proposed": [{"name": name, "description": f"The {name} method"}],
                 "methods_used": ["Transformer"] if "Attention Is All" not in title else [],
@@ -120,7 +134,10 @@ class FakeBackend(Backend):
                                "themes": [0], "papers": refs[:2]}]}
 
     def _refineplan(self, user, refs):
-        command = re.search(r'refine the graph: "(.*)"', user).group(1)
+        if self.next_plan is not None:
+            plan, self.next_plan = self.next_plan, None
+            return plan
+        command = re.search(r"<user_command>\n(.*)\n</user_command>", user).group(1)
         op = {"action": "filter", "query": None, "papers": [], "direction": None, "limit": None,
               "year_min": None, "year_max": None, "min_citations": None}
         if "2020" in command:
@@ -131,6 +148,19 @@ class FakeBackend(Backend):
 
     def _answer(self, user, refs):
         return {"answer": "FlashAttention is key [n0].", "nodes": ["n0"]}
+
+
+def op(action: str, **kw) -> dict:
+    """A RefineOp dict with all fields present (strict schema)."""
+    return {"action": action, "query": None, "papers": [], "direction": None, "limit": None,
+            "year_min": None, "year_max": None, "min_citations": None} | kw
+
+
+@pytest.fixture(autouse=True)
+def _reset_overrides():
+    OVERRIDES.clear()
+    yield
+    OVERRIDES.clear()
 
 
 @pytest.fixture
@@ -144,9 +174,19 @@ def settings(tmp_path):
                     fulltext_enabled=True, cache_llm=False)
 
 
+def make_forest(settings, backend, handler=s2_handler, logs: list | None = None) -> Forest:
+    s2 = SemanticScholar(rps=0, transport=httpx.MockTransport(handler))
+    on_log = (lambda _p, m: logs.append(m)) if logs is not None else None
+    return Forest(settings, llm=LLM(backend, concurrency=4, retries=0), s2=s2, on_log=on_log)
+
+
 @pytest.fixture
-async def forest(settings, fake_backend):
-    s2 = SemanticScholar(rps=0, transport=httpx.MockTransport(s2_handler))
-    f = Forest(settings, llm=LLM(fake_backend, concurrency=4), s2=s2)
+def logs():
+    return []
+
+
+@pytest.fixture
+async def forest(settings, fake_backend, logs):
+    f = make_forest(settings, fake_backend, logs=logs)
     yield f
     await f.aclose()

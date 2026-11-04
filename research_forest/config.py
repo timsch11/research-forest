@@ -40,6 +40,11 @@ class Settings:
     fulltext_max_mb: int = 25
     fulltext_timeout: float = 90.0
     fulltext_mem_mb: int = 1024
+    fulltext_allow_private: bool = False  # SSRF guard; only disable for local testing
+
+    # --- web server ---
+    api_token: str | None = None  # generated at startup when unset
+    max_jobs: int = 2  # concurrent build/refine jobs across all projects
 
     db_path: str = "research.forest.db"
     extra: dict[str, str] = field(default_factory=dict)

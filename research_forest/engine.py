@@ -55,6 +55,7 @@ class Forest:
             await self._fetch_new_links(ctx)
             ctx.log("snowballing through references")
             await discover.snowball(ctx, target - len(self.store.papers(project, "included")))
+            discover.select(ctx, target - len(self.store.papers(project, "included")))  # top up if snowball was thin
             await self.process(project, synthesize=True)
             self.store.set_status(project, "ready")
         except BaseException:
@@ -116,10 +117,14 @@ class Forest:
         self.store.snapshot(project, command)
         self.store.set_status(project, "refining")
         try:
+            before = len(papers)
             for op in plan.ops:
-                ids = [papers[i].id for i in op.papers if 0 <= i < len(papers)]
+                ids = list(dict.fromkeys(papers[i].id for i in op.papers if 0 <= i < len(papers)))
                 ctx.log(f"op {op.action}" + (f": {op.query}" if op.query else ""))
                 await self._apply(ctx, op, ids)
+            removed = before - len({r.paper.id for r in self.store.papers(project, "included")} & {p.id for p in papers})
+            if before and removed / before > 0.5:
+                ctx.log(f"warning: this refinement removed {removed} of {before} papers — use undo if unintended")
             await self.process(project, synthesize=True)
             self.store.set_status(project, "ready")
         except BaseException:
@@ -152,7 +157,7 @@ class Forest:
                 ctx.log(f"rescope removed {len(off)} off-focus papers")
                 hits = await discover.search(ctx, new.search_queries, new.seed_papers, year_min=new.year_min)
                 await discover.screen(ctx, hits)
-                discover.select(ctx, op.limit or max(10, len(off)), hits)
+                discover.select(ctx, op.limit or min(discover.MAX_PAPERS_PER_OP, max(10, len(off))), hits)
             case "resynthesize":
                 pass  # process() always re-synthesises after a refinement
             case _:
@@ -191,9 +196,9 @@ class Forest:
                 if ex:
                     detail += f" | datasets: {', '.join(d.name for d in ex.datasets[:5]) or '-'}"
                     detail += f" | limitations: {'; '.join(clip(l.text, 90) for l in ex.limitations[:3]) or '-'}"
-                lines.append(f"{handle[n]} [paper {r.paper.year or '?'}] {r.paper.title} — {detail}")
+                lines.append(f"{handle[n]} [paper {r.paper.year or '?'}] {clip(r.paper.title, 300)} — {detail}")
             else:
-                lines.append(f"{handle[n]} [{v['kind']}] {v['label']}")
+                lines.append(f"{handle[n]} [{v['kind']}] {clip(v['label'], 300)}")
         seen = set()
         for n in chosen:
             for e in adj[n]:
@@ -201,11 +206,11 @@ class Forest:
                 if key in seen or e["source"] not in handle or e["target"] not in handle:
                     continue
                 seen.add(key)
-                label = e["kind"] + (f"[{e.get('change_type')}: {clip(e.get('summary'), 120)}]"
+                label = e["kind"] + (f"[{clip(e.get('change_type'), 20)}: {clip(e.get('summary'), 120)}]"
                                      if e["kind"] == "builds_on" else "")
                 lines.append(f"{handle[e['source']]} -{label}-> {handle[e['target']]}")
 
-        res = await self.llm.json(Answer, SYSTEM, answer_prompt(self.store.scope(project), "\n".join(lines), question))
+        res = await self.llm.json(Answer, SYSTEM, answer_prompt(self.store.scope(project), lines, question))
         back = {h: n for n, h in handle.items()}
         answer = res.answer
         for h, n in back.items():

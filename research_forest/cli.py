@@ -74,7 +74,13 @@ def main(argv: list[str] | None = None) -> None:
         import uvicorn
 
         from .web import create_app
-        uvicorn.run(create_app(_settings(args)), host=args.host, port=args.port)
+        app = create_app(_settings(args))
+        if args.host not in ("127.0.0.1", "localhost", "::1"):
+            print(f"warning: listening on {args.host} exposes the explorer to your network; "
+                  "traffic is unencrypted, keep the token secret.", file=sys.stderr)
+        shown = "127.0.0.1" if args.host in ("0.0.0.0", "::") else args.host
+        print(f"research-forest explorer: http://{shown}:{args.port}/?token={app.state.token}", file=sys.stderr)
+        uvicorn.run(app, host=args.host, port=args.port, log_level="warning")
         return
 
     async def run(forest: Forest):

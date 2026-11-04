@@ -4,12 +4,14 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 import time
 from typing import Iterable, Literal
 
 import httpx
 
 from ..models import CitationLink, Paper
+from ..safety import safe_url, sanitize
 
 log = logging.getLogger(__name__)
 
@@ -17,19 +19,24 @@ API = "https://api.semanticscholar.org/graph/v1"
 PAPER_FIELDS = "paperId,title,abstract,year,venue,authors,citationCount,url,externalIds,openAccessPdf,tldr"
 EDGE_PAPER_FIELDS = "paperId,title,abstract,year,venue,authors,citationCount,url,externalIds"
 EDGE_FIELDS = "contexts,intents,isInfluential," + EDGE_PAPER_FIELDS
+_ARXIV_ID = re.compile(r"\d{4}\.\d{4,5}(?:v\d+)?|[a-z-]+(?:\.[A-Z]{2})?/\d{7}(?:v\d+)?")
 
 
 def to_paper(d: dict) -> Paper | None:
-    if not d or not d.get("paperId") or not d.get("title"):
+    if not d or not d.get("paperId") or not isinstance(d.get("title"), str) or not d["title"].strip():
         return None
     ext = d.get("externalIds") or {}
     arxiv = ext.get("ArXiv")
-    pdf = (d.get("openAccessPdf") or {}).get("url") or (f"https://arxiv.org/pdf/{arxiv}" if arxiv else None)
+    if arxiv and not _ARXIV_ID.fullmatch(arxiv):
+        arxiv = None
+    pdf = safe_url((d.get("openAccessPdf") or {}).get("url")) or (f"https://arxiv.org/pdf/{arxiv}" if arxiv else None)
+    year = d.get("year")
     return Paper(
-        id=d["paperId"], title=d["title"].strip(), abstract=d.get("abstract"),
-        tldr=(d.get("tldr") or {}).get("text"), year=d.get("year"), venue=d.get("venue") or None,
-        authors=[a["name"] for a in (d.get("authors") or [])[:8] if a.get("name")],
-        citation_count=d.get("citationCount") or 0, url=d.get("url"), arxiv_id=arxiv, pdf_url=pdf)
+        id=str(d["paperId"])[:100], title=sanitize(d["title"], 500), abstract=sanitize(d.get("abstract"), 10_000) or None,
+        tldr=sanitize((d.get("tldr") or {}).get("text"), 1000) or None,
+        year=year if isinstance(year, int) else None, venue=sanitize(d.get("venue"), 200) or None,
+        authors=[sanitize(a["name"], 100) for a in (d.get("authors") or [])[:8] if a.get("name")],
+        citation_count=d.get("citationCount") or 0, url=safe_url(d.get("url")), arxiv_id=arxiv, pdf_url=pdf)
 
 
 class SemanticScholar:
@@ -100,7 +107,8 @@ class SemanticScholar:
                 continue
             citing, cited = (paper_id, other.id) if direction == "references" else (other.id, paper_id)
             out.append((other, CitationLink(
-                citing=citing, cited=cited, contexts=[c for c in row.get("contexts") or [] if c][:6],
+                citing=citing, cited=cited,
+                contexts=[sanitize(c, 1000) for c in row.get("contexts") or [] if isinstance(c, str) and c][:6],
                 intents=row.get("intents") or [], influential=bool(row.get("isInfluential")))))
         return out
 
@@ -112,7 +120,8 @@ class SemanticScholar:
         except (httpx.HTTPStatusError, RuntimeError) as e:
             log.info("snippet search unavailable for %s: %s", paper_id, e)
             return []
-        return [t for row in data.get("data") or [] if (t := (row.get("snippet") or {}).get("text"))]
+        return [sanitize(t, 5000) for row in data.get("data") or []
+                if isinstance(t := (row.get("snippet") or {}).get("text"), str) and t]
 
     async def aclose(self) -> None:
         await self._client.aclose()

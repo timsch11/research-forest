@@ -21,6 +21,7 @@ from .semantic_scholar import SemanticScholar
 log = logging.getLogger(__name__)
 
 WORKER = Path(__file__).with_name("fulltext_worker.py")
+WORKER_GRACE = 15.0  # seconds on top of the download timeout before the worker is killed
 
 # Generic BM25 queries per missing field; extended with LLM-suggested search terms.
 FIELD_QUERIES = {
@@ -71,7 +72,8 @@ def _bwrap_prefix() -> tuple[str, ...]:
 async def run_worker(urls: list[str], queries: dict[str, str], settings: Settings, top_k: int = 4) -> dict:
     """Run the full-text worker in an isolated subprocess and return its JSON response."""
     request = {"urls": urls, "queries": queries, "top_k": top_k, "max_bytes": settings.fulltext_max_mb * 2**20,
-               "timeout": settings.fulltext_timeout, "mem_mb": settings.fulltext_mem_mb, "paths": _package_paths()}
+               "timeout": settings.fulltext_timeout, "mem_mb": settings.fulltext_mem_mb, "paths": _package_paths(),
+               "allow_private": settings.fulltext_allow_private}
     env = {k: v for k in _ENV_PASSTHROUGH if (v := os.environ.get(k))}
     with tempfile.TemporaryDirectory(prefix="rf-fulltext-") as tmp:
         env["HOME"] = env["TMPDIR"] = env["TEMP"] = env["TMP"] = tmp
@@ -81,14 +83,21 @@ async def run_worker(urls: list[str], queries: dict[str, str], settings: Setting
             stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
         try:
             out, err = await asyncio.wait_for(proc.communicate(json.dumps(request).encode()),
-                                              settings.fulltext_timeout + 15)
+                                              settings.fulltext_timeout + WORKER_GRACE)
         except asyncio.TimeoutError:
             proc.kill()
             await proc.wait()
             return {"source": None, "passages": {}, "error": "worker timed out"}
     if proc.returncode != 0:
         return {"source": None, "passages": {}, "error": f"worker exit {proc.returncode}: {err.decode()[-300:]}"}
-    return json.loads(out or b"{}")
+    try:
+        res = json.loads(out or b"{}")
+    except ValueError:
+        return {"source": None, "passages": {}, "error": "worker returned invalid JSON"}
+    # The worker processes untrusted data: validate the shape of what it hands back.
+    passages = {f: [{"text": str(h.get("text", ""))[:5000]} for h in hits[:top_k] if isinstance(h, dict)]
+                for f, hits in (res.get("passages") or {}).items() if f in queries and isinstance(hits, list)}
+    return {"source": res.get("source"), "passages": passages, "error": res.get("error")}
 
 
 class PassageFinder:

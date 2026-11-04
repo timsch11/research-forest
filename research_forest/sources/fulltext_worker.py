@@ -5,18 +5,22 @@ PDF parsing never execute inside the main application. It imports nothing from
 the research_forest package. Protocol: one JSON request on stdin, one JSON
 response on stdout.
 
-Request:  {"urls": [...], "queries": {field: query}, "top_k": int,
-           "max_bytes": int, "timeout": float, "mem_mb": int, "paths": [...]}
+Request:  {"urls": [...], "queries": {field: query}, "top_k": int, "max_bytes": int,
+           "timeout": float, "mem_mb": int, "paths": [...], "allow_private": bool}
 Response: {"source": url | null, "passages": {field: [{"text", "score"}]}, "error": str | null}
 """
 
 import io
+import ipaddress
 import json
 import math
+import os
 import re
+import socket
 import sys
 from collections import Counter
 from html.parser import HTMLParser
+from urllib.parse import urljoin, urlsplit
 
 MAX_PAGES = 80
 CHUNK_WORDS, CHUNK_STRIDE = 120, 80
@@ -45,25 +49,77 @@ def limit_resources(mem_mb: int, cpu_s: int) -> None:
 
 # ------------------------------------------------------------- download ----
 
-def download(url: str, max_bytes: int, timeout: float) -> tuple[bytes, str]:
+MAX_REDIRECTS = 5
+MAX_TEXT_CHARS = 3_000_000
+ALLOWED_TYPES = ("application/pdf", "text/html", "application/xhtml+xml", "text/plain")
+
+
+def _proxied(scheme: str) -> bool:
+    return any(os.environ.get(k) for k in (f"{scheme.upper()}_PROXY", f"{scheme}_proxy", "ALL_PROXY", "all_proxy"))
+
+
+def check_url(url: str, allow_private: bool = False) -> None:
+    """SSRF guard: http(s) on default ports only, and the host must resolve to public addresses.
+
+    When the host cannot be resolved locally but an egress proxy is configured, resolution is
+    the proxy's job and the request is allowed (the proxy enforces its own policy).
+    """
+    parts = urlsplit(url)
+    scheme = parts.scheme.lower()
+    if scheme not in ("http", "https"):
+        raise ValueError(f"unsupported scheme {scheme!r}")
+    host = parts.hostname
+    if not host or parts.username or parts.password:
+        raise ValueError("invalid host")
+    if allow_private:  # local testing only
+        return
+    if parts.port not in (None, 80, 443):
+        raise ValueError(f"port {parts.port} not allowed")
+    try:
+        addrs = [ipaddress.ip_address(host)]
+    except ValueError:
+        try:
+            addrs = [ipaddress.ip_address(info[4][0].split("%")[0]) for info in socket.getaddrinfo(host, None)]
+        except (socket.gaierror, UnicodeError):
+            if _proxied(scheme):
+                return
+            raise ValueError(f"cannot resolve {host!r}")
+    for addr in addrs:
+        addr = getattr(addr, "ipv4_mapped", None) or addr
+        if not addr.is_global or addr.is_multicast:
+            raise ValueError(f"non-public address {addr} for {host!r}")
+
+
+def download(url: str, max_bytes: int, timeout: float, allow_private: bool = False,
+             client=None) -> tuple[bytes, str]:
     import httpx
 
-    if not url.startswith(("https://", "http://")):
-        raise ValueError("unsupported scheme")
     headers = {"User-Agent": "research-forest/0.1 (fulltext passage search)"}
-    with httpx.stream("GET", url, follow_redirects=True, timeout=timeout, headers=headers) as r:
-        r.raise_for_status()
-        ctype = r.headers.get("content-type", "").split(";")[0].strip().lower()
-        if ctype not in ("application/pdf", "text/html", "application/xhtml+xml", "text/plain"):
-            raise ValueError(f"unsupported content-type {ctype!r}")
-        if int(r.headers.get("content-length") or 0) > max_bytes:
-            raise ValueError("document too large")
-        buf = bytearray()
-        for chunk in r.iter_bytes():
-            buf += chunk
-            if len(buf) > max_bytes:
-                raise ValueError("document too large")
-    return bytes(buf), ctype
+    own = client is None
+    client = client or httpx.Client(follow_redirects=False, timeout=timeout, headers=headers)
+    try:
+        for _ in range(MAX_REDIRECTS + 1):
+            check_url(url, allow_private)  # re-checked on every redirect hop
+            with client.stream("GET", url) as r:
+                if r.is_redirect:
+                    url = urljoin(url, r.headers.get("location", ""))
+                    continue
+                r.raise_for_status()
+                ctype = r.headers.get("content-type", "").split(";")[0].strip().lower()
+                if ctype not in ALLOWED_TYPES:
+                    raise ValueError(f"unsupported content-type {ctype!r}")
+                if int(r.headers.get("content-length") or 0) > max_bytes:
+                    raise ValueError("document too large")
+                buf = bytearray()
+                for chunk in r.iter_bytes():  # decoded bytes: also bounds gzip bombs
+                    buf += chunk
+                    if len(buf) > max_bytes:
+                        raise ValueError("document too large")
+                return bytes(buf), ctype
+        raise ValueError("too many redirects")
+    finally:
+        if own:
+            client.close()
 
 
 # ---------------------------------------------------------- text extract ----
@@ -162,8 +218,9 @@ def main() -> None:
     errors = []
     for url in req.get("urls", []):
         try:
-            data, ctype = download(url, int(req.get("max_bytes", 25 * 2**20)), float(req.get("timeout", 90)))
-            text = extract_text(data, ctype)
+            data, ctype = download(url, int(req.get("max_bytes", 25 * 2**20)), float(req.get("timeout", 90)),
+                                   bool(req.get("allow_private", False)))
+            text = extract_text(data, ctype)[:MAX_TEXT_CHARS]
             if len(text) < 500:
                 raise ValueError("no extractable text")
             out = {"source": url, "passages": search(text, req["queries"], int(req.get("top_k", 4))), "error": None}
