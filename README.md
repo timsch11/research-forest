@@ -68,7 +68,7 @@ All settings can be passed as CLI flags or as `RF_*` environment variables (see
 | Variable | Default | Meaning |
 |---|---|---|
 | `RF_BACKEND` | `openai` | `openai`, `claude-code` or `codex` |
-| `RF_MODEL` | backend default | model name passed to the backend |
+| `RF_MODEL` | `gpt-6-luna` (openai); CLI default otherwise | model name passed to the backend |
 | `OPENAI_BASE_URL` / `RF_OPENAI_BASE_URL` | `https://api.openai.com/v1` | OpenAI-compatible endpoint |
 | `OPENAI_API_KEY` / `RF_OPENAI_API_KEY` | – | API key for the endpoint |
 | `S2_API_KEY` / `RF_S2_API_KEY` | – | Semantic Scholar API key (recommended: higher rate limits, snippet search) |
@@ -82,7 +82,7 @@ Examples:
 
 ```bash
 # OpenAI-compatible (local vLLM / Ollama works the same way)
-export OPENAI_API_KEY=sk-...  RF_MODEL=gpt-4.1-mini
+export OPENAI_API_KEY=sk-...            # RF_MODEL defaults to gpt-6-luna
 # Claude Code CLI (uses your Claude Code login)
 export RF_BACKEND=claude-code
 # Codex CLI
@@ -134,6 +134,26 @@ separate process that is:
   size (`RF_FULLTEXT_MAX_MB`), with documents held in memory only;
 - wrapped in **bubblewrap** (`bwrap`) when it is installed: read-only system and Python paths,
   your home directory hidden, a private `/tmp`, every namespace unshared except the network.
+
+## Platform support
+
+The code is plain Python and runs on Linux, macOS and Windows. Only the sandboxing of the
+full-text worker depends on the operating system:
+
+| | Linux | macOS | Windows |
+|---|---|---|---|
+| Isolated subprocess (`python -I`, temp dir, minimal env, timeout, size/type caps) | ✓ | ✓ | ✓ |
+| rlimits (memory, CPU, file size, core dumps) | ✓ | ✓ (memory limit is often ignored by the kernel) | – |
+| bubblewrap namespace sandbox | ✓ if `bwrap` is installed | – | – |
+
+So the full-text sandbox is strongest on Linux with `bwrap`. On Windows it falls back to process
+isolation with a timeout, without kernel-level resource limits. If you want the strongest
+isolation there, run the tool under WSL2. You can also disable full-text gap filling with
+`--no-fulltext` (or `RF_FULLTEXT_ENABLED=false`).
+
+Other notes: the `claude-code` / `codex` backends need those CLIs on `PATH` (on Windows,
+`claude.cmd` / `codex.cmd` are found automatically). SQLite must include FTS5, which the
+python.org, Homebrew and most Linux-distribution builds do.
 
 ## Architecture
 

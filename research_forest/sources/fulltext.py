@@ -30,7 +30,8 @@ FIELD_QUERIES = {
     "methods": "propose proposed method approach architecture model framework algorithm",
 }
 _ENV_PASSTHROUGH = ("PATH", "LANG", "LC_ALL", "HTTPS_PROXY", "HTTP_PROXY", "NO_PROXY", "https_proxy",
-                    "http_proxy", "no_proxy", "SSL_CERT_FILE", "SSL_CERT_DIR", "REQUESTS_CA_BUNDLE")
+                    "http_proxy", "no_proxy", "SSL_CERT_FILE", "SSL_CERT_DIR", "REQUESTS_CA_BUNDLE",
+                    "SYSTEMROOT", "WINDIR", "COMSPEC")  # Windows needs SYSTEMROOT for sockets/crypto
 
 
 def _package_paths() -> list[str]:
@@ -47,7 +48,7 @@ def _package_paths() -> list[str]:
 @functools.lru_cache(maxsize=1)
 def _bwrap_prefix() -> tuple[str, ...]:
     """bubblewrap command prefix if available and functional, else empty (rlimits only)."""
-    if not (bwrap := shutil.which("bwrap")):
+    if not sys.platform.startswith("linux") or not (bwrap := shutil.which("bwrap")):
         return ()
     binds: list[str] = []
     for p in {"/usr", "/lib", "/lib64", "/bin", "/etc", sys.prefix, sys.base_prefix, *_package_paths()}:
@@ -73,7 +74,7 @@ async def run_worker(urls: list[str], queries: dict[str, str], settings: Setting
                "timeout": settings.fulltext_timeout, "mem_mb": settings.fulltext_mem_mb, "paths": _package_paths()}
     env = {k: v for k in _ENV_PASSTHROUGH if (v := os.environ.get(k))}
     with tempfile.TemporaryDirectory(prefix="rf-fulltext-") as tmp:
-        env["HOME"] = env["TMPDIR"] = tmp
+        env["HOME"] = env["TMPDIR"] = env["TEMP"] = env["TMP"] = tmp
         cmd = [*_bwrap_prefix(), sys.executable, "-I", str(WORKER)]
         proc = await asyncio.create_subprocess_exec(
             *cmd, cwd=tmp, env=env, stdin=asyncio.subprocess.PIPE,

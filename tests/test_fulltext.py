@@ -1,4 +1,5 @@
 import http.server
+import sys
 import threading
 
 import pytest
@@ -54,3 +55,8 @@ async def test_worker_rejects_bad_content(http_server, tmp_path):
     res = await run_worker([f"{http_server}/image", "file:///etc/passwd"], {"x": "y"}, settings)
     assert res["source"] is None
     assert "content-type" in res["error"] and "unsupported scheme" in res["error"]
+
+
+def test_resource_limits_are_optional(monkeypatch):
+    monkeypatch.setitem(sys.modules, "resource", None)  # simulate Windows: `import resource` fails
+    worker.limit_resources(512, 10)  # must not raise

@@ -14,7 +14,6 @@ import io
 import json
 import math
 import re
-import resource
 import sys
 from collections import Counter
 from html.parser import HTMLParser
@@ -28,10 +27,20 @@ _STOP = frozenset(
 
 
 def limit_resources(mem_mb: int, cpu_s: int) -> None:
-    resource.setrlimit(resource.RLIMIT_AS, (mem_mb * 2**20, mem_mb * 2**20))
-    resource.setrlimit(resource.RLIMIT_CPU, (cpu_s, cpu_s + 5))
-    resource.setrlimit(resource.RLIMIT_FSIZE, (2**20, 2**20))  # no meaningful disk writes
-    resource.setrlimit(resource.RLIMIT_CORE, (0, 0))
+    """Best-effort rlimits. POSIX only; some platforms (e.g. macOS for RLIMIT_AS) refuse individual limits."""
+    try:
+        import resource
+    except ImportError:  # Windows: rely on the parent's wall-clock timeout and size caps
+        return
+    limits = [(resource.RLIMIT_AS, mem_mb * 2**20), (resource.RLIMIT_CPU, cpu_s),
+              (resource.RLIMIT_FSIZE, 2**20), (resource.RLIMIT_CORE, 0)]  # FSIZE: no meaningful disk writes
+    for res, value in limits:
+        try:
+            _, hard = resource.getrlimit(res)
+            value = value if hard == resource.RLIM_INFINITY else min(value, hard)
+            resource.setrlimit(res, (value, value))
+        except (ValueError, OSError):
+            pass
 
 
 # ------------------------------------------------------------- download ----

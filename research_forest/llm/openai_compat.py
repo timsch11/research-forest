@@ -11,6 +11,7 @@ from .base import Backend, TransientLLMError
 # Structured-output modes, from most to least constrained. Servers that reject a
 # mode (HTTP 400/422) are transparently downgraded to the next one.
 _MODES = ("strict", "schema", "object", "plain")
+DEFAULT_MODEL = "gpt-6-luna"
 
 
 class OpenAIBackend(Backend):
@@ -18,7 +19,7 @@ class OpenAIBackend(Backend):
 
     def __init__(self, base_url: str, api_key: str | None, model: str | None, timeout: float = 300.0,
                  transport: httpx.AsyncBaseTransport | None = None):
-        self.model = model or "gpt-4.1-mini"
+        self.model = model or DEFAULT_MODEL
         headers = {"Authorization": f"Bearer {api_key}"} if api_key else {}
         self._client = httpx.AsyncClient(base_url=base_url.rstrip("/"), headers=headers, timeout=timeout,
                                          transport=transport)
