@@ -1,0 +1,84 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Research Forest</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<header class="topbar">
+  <div class="brand">research<span>forest</span></div>
+  <select id="project-select" aria-label="Landscape"></select>
+  <button id="new-btn" class="ghost">+ New landscape</button>
+  <div class="spacer"></div>
+  <div id="status" class="status"></div>
+</header>
+
+<section id="start" class="start hidden">
+  <h1>Map a research landscape</h1>
+  <p>Describe the research area. The tool finds papers, traces which work builds on which,
+     and extracts methods, datasets, limitations and open questions.</p>
+  <textarea id="prompt" rows="4" placeholder="e.g. Efficient attention mechanisms for long-context transformers"></textarea>
+  <div class="row">
+    <label>Papers <input id="target" type="number" min="5" max="400" value="60"></label>
+    <button id="build-btn" class="primary">Build graph</button>
+  </div>
+</section>
+
+<main id="workspace" class="workspace hidden">
+  <aside class="sidebar">
+    <input id="search" type="search" placeholder="Search papers, methods, datasets…" autocomplete="off">
+    <ul id="results" class="results"></ul>
+
+    <h3>View</h3>
+    <div class="seg" id="view-toggle">
+      <button data-view="lineage" class="on">Lineage</button>
+      <button data-view="landscape">Landscape</button>
+    </div>
+
+    <h3>Show</h3>
+    <div id="kind-filters" class="filters"></div>
+
+    <h3>Years</h3>
+    <div class="row years">
+      <input id="year-min" type="number" placeholder="from">
+      <input id="year-max" type="number" placeholder="to">
+    </div>
+
+    <h3>Change types</h3>
+    <div id="change-filters" class="filters"></div>
+
+    <h3>Open questions</h3>
+    <ul id="questions" class="results"></ul>
+  </aside>
+
+  <section class="canvas-wrap">
+    <div id="cy"></div>
+    <div id="empty" class="empty hidden">No papers yet — the graph appears once the build has progressed.</div>
+  </section>
+
+  <aside id="details" class="details">
+    <p class="muted">Select a node to see details.</p>
+  </aside>
+
+  <footer class="console">
+    <div class="seg" id="mode-toggle">
+      <button data-mode="refine" class="on">Refine</button>
+      <button data-mode="ask">Ask</button>
+    </div>
+    <form id="command-form">
+      <input id="command" autocomplete="off"
+             placeholder="e.g. expand around FlashAttention, drop vision papers, focus on 2022+">
+      <button class="primary" type="submit">Run</button>
+      <button id="undo-btn" class="ghost" type="button" title="Undo last refinement">Undo</button>
+    </form>
+    <div id="answer" class="answer hidden"></div>
+    <details id="log-box"><summary>Progress log</summary><ol id="log"></ol></details>
+  </footer>
+</main>
+
+<script src="/static/vendor/cytoscape-3.30.2.min.js"></script>
+<script src="/static/app.js"></script>
+</body>
+</html>
