@@ -81,6 +81,17 @@ For reference, with Claude Haiku through the `claude-code` backend and no Semant
 the evidence and ranking changes raised dataset recall from 56% to 73% and precision from 85%
 to 90%.
 
+### Comparing full-text sources
+
+```bash
+research-forest evaluate --sources
+```
+
+This runs the dataset passage search on each gold paper's arXiv HTML and on its PDF, then
+counts the gold datasets named in the top six passages. No LLM is involved, so the result is
+deterministic and costs nothing but downloads. On the shipped gold set, HTML scores 82% and
+PDF 73%, and HTML is about twice as fast to process.
+
 ## Extending
 
 **Add an inference backend.** Subclass `llm.base.Backend` and implement

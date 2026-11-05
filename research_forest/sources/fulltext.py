@@ -109,6 +109,16 @@ async def run_worker(urls: list[str], queries: dict[str, str], settings: Setting
     return {"source": res.get("source"), "passages": passages, "error": res.get("error")}
 
 
+def document_urls(paper: Paper, prefer_html: bool = True) -> list[str]:
+    """Full-text sources to try in order. arXiv's HTML rendering (also available for most older
+    papers) gives clean text with readable tables, where datasets are typically listed; PDF text
+    extraction scrambles tables. The worker falls through to the next URL when one fails."""
+    html = f"https://arxiv.org/html/{paper.arxiv_id}" if paper.arxiv_id else None
+    arxiv_pdf = f"https://arxiv.org/pdf/{paper.arxiv_id}" if paper.arxiv_id else None
+    order = [html, paper.pdf_url, arxiv_pdf] if prefer_html else [paper.pdf_url, arxiv_pdf, html]
+    return list(dict.fromkeys(u for u in order if u))
+
+
 class PassageFinder:
     """Finds text passages that can fill the fields an abstract-only extraction missed."""
 
@@ -136,7 +146,7 @@ class PassageFinder:
                 found[field] = snippets
 
         remaining = {f: q for f, q in queries.items() if f not in found}
-        urls = [u for u in (paper.pdf_url, f"https://arxiv.org/pdf/{paper.arxiv_id}" if paper.arxiv_id else None) if u]
+        urls = document_urls(paper, self.settings.fulltext_prefer_html)
         if remaining and urls and self.settings.fulltext_enabled:
             async with self._sem:
                 res = await run_worker(list(dict.fromkeys(urls)), remaining, self.settings, top_k)

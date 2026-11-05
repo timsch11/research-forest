@@ -182,3 +182,41 @@ async def test_evaluate_end_to_end(settings, fake_backend, tmp_path):
     assert any("not found" in l for l in lines)
     text = format_report(report, {"summary": {**s, "dataset_recall": 0.5}})
     assert "Dataset recall" in text and "+17% vs baseline" in text and "missed: MIMIC-III" in text
+
+
+# ------------------------------------------------------ source comparison
+
+
+@pytest.mark.parametrize("text, alias, ok", [
+    ("Results on WikiText-103 are", "WikiText-103", True),
+    ("results on wikitext 103", "WikiText-103", True),
+    ("trained on CIFAR-100 images", "CIFAR-10", False),
+    ("the ImageNet-21k corpus", "ImageNet", True),  # "ImageNet" is a whole word inside "ImageNet-21k"
+    ("evaluated on ImageNet.", "ImageNet", True),
+    ("search", "ARC", False),
+])
+def test_mentions(text, alias, ok):
+    from research_forest.evaluation import mentions
+    assert mentions(text, alias) is ok
+
+
+async def test_evaluate_sources(tmp_path, monkeypatch):
+    from research_forest import evaluation
+    from research_forest.config import Settings
+    from research_forest.sources import fulltext
+
+    async def fake_worker(urls, queries, settings, top_k=4):
+        if "html" in urls[0]:
+            return {"source": urls[0], "error": None, "passages": {"datasets": [{"text": "We use GLUE and SQuAD."}]}}
+        return {"source": None, "error": "boom", "passages": {}}
+
+    monkeypatch.setattr(fulltext, "run_worker", fake_worker)
+    gold = tmp_path / "g.json"
+    gold.write_text(json.dumps({"papers": [{"id": "ARXIV:1810.04805", "title": "BERT",
+                                            "datasets": [["GLUE"], ["SQuAD"], ["SWAG"]],
+                                            "methods_proposed": [["BERT"]]}]}))
+    report = await evaluation.evaluate_sources(Settings(db_path=str(tmp_path / "db")), gold, on_log=lambda m: None)
+    assert report["summary"]["html"]["passage_recall"] == pytest.approx(2 / 3, abs=1e-3)
+    assert report["summary"]["pdf"] == {"available": 0, "passage_recall": 0.0, "seconds": report["summary"]["pdf"]["seconds"]}
+    text = evaluation.format_sources_report(report)
+    assert "html" in text and "(n/a)" in text

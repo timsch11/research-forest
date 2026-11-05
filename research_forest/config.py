@@ -45,6 +45,7 @@ CONFIG_KEYS: dict[tuple[str, str], tuple[str, type]] = {
     ("fulltext", "timeout"): ("fulltext_timeout", float),
     ("fulltext", "memory_mb"): ("fulltext_mem_mb", int),
     ("fulltext", "allow_private"): ("fulltext_allow_private", bool),
+    ("fulltext", "prefer_html"): ("fulltext_prefer_html", bool),
     ("server", "max_jobs"): ("max_jobs", int),
     ("storage", "db_path"): ("db_path", str),
 }
@@ -129,6 +130,7 @@ class Settings:
     fulltext_timeout: float = 90.0
     fulltext_mem_mb: int = 1024
     fulltext_allow_private: bool = False  # SSRF guard; only disable for local testing
+    fulltext_prefer_html: bool = True  # try arXiv's HTML rendering before PDFs (cleaner text and tables)
 
     # --- web server ---
     api_token: str | None = None  # secret; generated at startup when unset

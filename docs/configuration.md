@@ -58,6 +58,7 @@ All settings are optional.
 | `timeout` | `90` | Seconds per document |
 | `memory_mb` | `1024` | Worker memory limit (POSIX) |
 | `allow_private` | `false` | Disables the SSRF guard. **Local testing only.** |
+| `prefer_html` | `true` | Try arXiv's HTML rendering before PDFs (cleaner text, readable tables) |
 
 ### `[server]` and `[storage]`
 

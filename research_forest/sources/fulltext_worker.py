@@ -124,28 +124,72 @@ def download(url: str, max_bytes: int, timeout: float, allow_private: bool = Fal
 
 # ---------------------------------------------------------- text extract ----
 
+_CELLS = re.compile(r"(?:\s*\|\s*)+")  # runs of (empty) table cells -> one separator
+_SPACES = re.compile(r"\s+")
+
+
 class _HTMLText(HTMLParser):
-    _SKIP = {"script", "style", "nav", "header", "footer", "noscript", "svg", "math"}
+    """Readable text from HTML, tuned for arXiv's LaTeXML renderings.
+
+    Drops page chrome and parts that only add noise to passage search (bibliography, author and
+    affiliation blocks, table of contents, math markup), turns block elements into line breaks
+    and keeps table cells apart with " | " so a table row stays one readable line.
+    """
+
+    SKIP_TAGS = {"head", "script", "style", "nav", "header", "footer", "noscript", "svg", "math", "button", "form"}
+    SKIP_CLASSES = {"ltx_bibliography", "ltx_authors", "ltx_TOC", "ltx_page_footer", "ltx_page_header",
+                    "ltx_dates", "ltx_role_affiliation", "ltx_role_email", "ltx_note_mark"}
+    BLOCK_TAGS = {"p", "div", "section", "article", "h1", "h2", "h3", "h4", "h5", "h6", "li", "tr", "table",
+                  "figcaption", "caption", "figure", "blockquote", "br", "dd", "dt", "pre"}
+    CELL_TAGS = {"td", "th"}
+    BREAK = "\x00"  # block boundary marker; never occurs in decoded page text we keep
+    VOID_TAGS = {"area", "base", "br", "col", "embed", "hr", "img", "input", "link", "meta", "source", "track",
+                 "wbr"}
 
     def __init__(self):
-        super().__init__()
+        super().__init__(convert_charrefs=True)
         self.parts: list[str] = []
-        self._depth = 0
+        self._stack: list[tuple[str, bool]] = []  # (tag, starts a skipped subtree)
+        self._skip = 0
 
     def handle_starttag(self, tag, attrs):
-        if tag in self._SKIP:
-            self._depth += 1
+        if tag in self.BLOCK_TAGS:
+            self.parts.append(self.BREAK)
+        elif tag in self.CELL_TAGS:
+            self.parts.append(" | ")
+        if tag in self.VOID_TAGS:
+            return
+        classes = set((dict(attrs).get("class") or "").split())
+        skipping = tag in self.SKIP_TAGS or bool(classes & self.SKIP_CLASSES)
+        self._stack.append((tag, skipping))
+        self._skip += skipping
 
     def handle_endtag(self, tag):
-        if tag in self._SKIP and self._depth:
-            self._depth -= 1
+        if tag in self.BLOCK_TAGS:
+            self.parts.append(self.BREAK)
+        if tag in self.VOID_TAGS or not any(t == tag for t, _ in self._stack):
+            return
+        while self._stack:  # pop to the matching tag (tolerates unclosed children)
+            t, skipping = self._stack.pop()
+            self._skip -= skipping
+            if t == tag:
+                break
 
     def handle_data(self, data):
-        if not self._depth:
-            self.parts.append(data)
+        if not self._skip:
+            self.parts.append(_SPACES.sub(" ", data))  # source newlines are just spaces
+
+    def text(self) -> str:
+        lines = "".join(self.parts).split(self.BREAK)
+        cleaned = (_CELLS.sub(" | ", " ".join(line.split())).strip(" |") for line in lines)
+        return "\n".join(line for line in cleaned if line)
 
 
-def extract_text(data: bytes, ctype: str) -> str:
+def is_arxiv_html(url: str) -> bool:
+    return "arxiv.org/html/" in url
+
+
+def extract_text(data: bytes, ctype: str, url: str = "") -> str:
     if ctype == "application/pdf" or data[:5] == b"%PDF-":
         from pypdf import PdfReader
 
@@ -154,9 +198,12 @@ def extract_text(data: bytes, ctype: str) -> str:
     text = data.decode("utf-8", errors="replace")
     if ctype == "text/plain":
         return text
+    if is_arxiv_html(url) and "ltx_document" not in text:
+        raise ValueError("no arXiv HTML rendering for this paper")
     parser = _HTMLText()
     parser.feed(text)
-    return " ".join(parser.parts)
+    parser.close()
+    return parser.text()
 
 
 # ------------------------------------------------------------------ BM25 ----
@@ -220,7 +267,7 @@ def main() -> None:
         try:
             data, ctype = download(url, int(req.get("max_bytes", 25 * 2**20)), float(req.get("timeout", 90)),
                                    bool(req.get("allow_private", False)))
-            text = extract_text(data, ctype)[:MAX_TEXT_CHARS]
+            text = extract_text(data, ctype, url)[:MAX_TEXT_CHARS]
             if len(text) < 500:
                 raise ValueError("no extractable text")
             out = {"source": url, "passages": search(text, req["queries"], int(req.get("top_k", 4))), "error": None}

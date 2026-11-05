@@ -18,6 +18,7 @@ from __future__ import annotations
 import json
 import re
 import tempfile
+import time
 from dataclasses import replace
 from pathlib import Path
 from typing import Any, Callable
@@ -124,6 +125,62 @@ async def evaluate(settings: Settings, gold_path: Path = DEFAULT_GOLD, limit: in
     finally:
         if owned:
             await forest.aclose()
+
+
+# ------------------------------------------------- full-text source comparison
+
+
+def mentions(text: str, alias: str) -> bool:
+    """Whether ``alias`` occurs in ``text`` as whole words, ignoring case and punctuation/spacing."""
+    tokens = re.findall(r"[a-z]+|\d+", alias.lower())
+    if not tokens:
+        return False
+    pattern = r"(?<![a-z0-9])" + r"[\W_]*".join(map(re.escape, tokens)) + r"(?![a-z0-9])"
+    return re.search(pattern, text.lower()) is not None
+
+
+async def evaluate_sources(settings: Settings, gold_path: Path = DEFAULT_GOLD, limit: int | None = None,
+                           top_k: int = 6, on_log: Callable[[str], None] = print) -> dict:
+    """Compare full-text sources without an LLM: for each gold paper, run the dataset passage search
+    on its arXiv HTML and on its PDF, and count the gold datasets named in the top passages."""
+    from .sources.fulltext import FIELD_QUERIES, run_worker
+
+    gold = json.loads(Path(gold_path).read_text(encoding="utf-8"))["papers"][:limit]
+    sources = {"html": "https://arxiv.org/html/{}", "pdf": "https://arxiv.org/pdf/{}"}
+    papers = []
+    for g in gold:
+        arxiv = g["id"].removeprefix("ARXIV:")
+        row: dict[str, Any] = {"id": g["id"], "title": g["title"]}
+        for name, template in sources.items():
+            started = time.monotonic()
+            res = await run_worker([template.format(arxiv)], {"datasets": FIELD_QUERIES["datasets"]}, settings, top_k)
+            text = " ".join(p["text"] for p in (res.get("passages") or {}).get("datasets", []))
+            found = [aliases[0] for aliases in g["datasets"] if any(mentions(text, a) for a in aliases)]
+            row[name] = {"ok": not res.get("error"), "error": res.get("error"),
+                         "recall": len(found) / len(g["datasets"]), "found": found,
+                         "seconds": round(time.monotonic() - started, 1)}
+        on_log(f"  · {g['title'][:40]}: html {row['html']['recall']:.0%}, pdf {row['pdf']['recall']:.0%}")
+        papers.append(row)
+    n = len(papers) or 1
+    summary = {name: {"available": sum(p[name]["ok"] for p in papers),
+                      "passage_recall": round(sum(p[name]["recall"] for p in papers) / n, 3),
+                      "seconds": round(sum(p[name]["seconds"] for p in papers) / n, 1)} for name in sources}
+    return {"summary": summary, "papers": papers, "top_k": top_k}
+
+
+def format_sources_report(report: dict) -> str:
+    s = report["summary"]
+    lines = [f"Gold datasets named in the top {report['top_k']} dataset passages (no LLM involved)", "",
+             f"  {'source':<8}{'available':>11}{'passage recall':>17}{'avg seconds':>14}"]
+    for name, v in s.items():
+        lines.append(f"  {name:<8}{v['available']:>8}/{len(report['papers']):<2}{v['passage_recall']:>16.0%}"
+                     f"{v['seconds']:>14}")
+    lines.append("")
+    for p in report["papers"]:
+        h, d = p["html"], p["pdf"]
+        lines.append(f"  {p['title'][:40]:<40}  html {h['recall']:>4.0%}{'' if h['ok'] else ' (n/a)':<7}"
+                     f"pdf {d['recall']:>4.0%}{'' if d['ok'] else ' (n/a)'}")
+    return "\n".join(lines)
 
 
 def format_report(report: dict, baseline: dict | None = None) -> str:
