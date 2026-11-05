@@ -131,7 +131,7 @@ _APPENDIX_HEADING = re.compile(r"^\s*(?:[A-Z]\.?\s+)?(appendix|appendices|supple
 _LIMITATION_HEADING = re.compile(
     r"\b(limitations?|conclusions?|concluding remarks|discussion|future work|future directions|"
     r"broader impacts?|societal impacts?)\b", re.I)
-MAX_TABLES, MAX_SECTIONS, SECTION_CHARS, MAX_TABLE_REFS = 15, 3, 2000, 80
+MAX_TABLES, MAX_SECTIONS, SECTION_CHARS, MAX_TABLE_REFS, MAX_BIBLIOGRAPHY = 15, 3, 2000, 80, 400
 # citation markers inside table cells: "[84]", "[12, 13]", "(Wang et al., 2020)"
 _CITE_MARK = re.compile(r"\s*\[\s*\d+(?:\s*[,–-]\s*\d+)*\s*\]|\s*\(?[A-Z][\w-]+(?: and [A-Z][\w-]+| et al\.)?,? \(?\d{4}[a-z]?\)\)?")
 _ARXIV_ID = re.compile(r"arXiv[:\s]*(\d{4}\.\d{4,5})", re.I)
@@ -145,6 +145,7 @@ class Document:
                  table_refs: list[dict] | None = None):
         self.text, self.tables, self.sections = text, tables or [], sections or []
         self.table_refs = table_refs or []  # cited labels in main-body tables: {label, title, arxiv, table}
+        self.bibliography: list[dict] = []  # the paper's own reference list: {title, arxiv}
 
     def limitation_sections(self) -> list[str]:
         """Text of Limitations / Conclusion / Discussion / Future-work sections, limitations first."""
@@ -317,6 +318,17 @@ class _HTMLText(HTMLParser):
     def text(self) -> str:
         return self._join(self.parts)
 
+    @staticmethod
+    def _bib_entry(blocks: list[str]) -> dict:
+        arxiv = m.group(1) if (m := _ARXIV_ID.search(" ".join(blocks))) else None
+        return {"title": (blocks[1] if len(blocks) > 1 else blocks[0])[:300], "arxiv": arxiv}
+
+    def bibliography(self) -> list[dict]:
+        """The paper's own reference list (title, arXiv id): a fallback when the bibliographic
+        database has no references for the paper."""
+        entries = [self._bib_entry(b) for b in ([x for x in blocks if x] for blocks in self._bib.values()) if b]
+        return entries[:MAX_BIBLIOGRAPHY]
+
     def table_refs(self) -> list[dict]:
         """Cited labels in main-body tables, resolved to their bibliography entries: usually the
         baselines a paper compares against ("Linformer [84]" -> "Linformer: Self-attention ...")."""
@@ -327,9 +339,7 @@ class _HTMLText(HTMLParser):
                 if not blocks or (label, bib_id) in seen:
                     continue
                 seen.add((label, bib_id))
-                arxiv = m.group(1) if (m := _ARXIV_ID.search(" ".join(blocks))) else None
-                title = blocks[1] if len(blocks) > 1 else blocks[0]
-                refs.append({"label": label, "title": title[:300], "arxiv": arxiv, "table": table})
+                refs.append({"label": label, **self._bib_entry(blocks), "table": table})
         return refs[:MAX_TABLE_REFS]
 
     def sections(self) -> list[tuple[str, str]]:
@@ -381,7 +391,9 @@ def parse_document(data: bytes, ctype: str, url: str = "") -> Document:
     parser = _HTMLText()
     parser.feed(text)
     parser.close()
-    return Document(parser.text(), parser.tables, parser.sections(), parser.table_refs())
+    doc = Document(parser.text(), parser.tables, parser.sections(), parser.table_refs())
+    doc.bibliography = parser.bibliography()
+    return doc
 
 
 def extract_text(data: bytes, ctype: str, url: str = "") -> str:
@@ -456,6 +468,7 @@ def main() -> None:
             out = {"source": url, "passages": search(text, req["queries"], int(req.get("top_k", 4))), "error": None,
                    "tables": doc.tables if req.get("tables") else [],
                    "table_refs": doc.table_refs if req.get("tables") else [],
+                   "bibliography": doc.bibliography if req.get("tables") else [],
                    "sections": doc.limitation_sections() if req.get("sections") else []}
             break
         except Exception as e:  # noqa: BLE001 - report any failure to the parent

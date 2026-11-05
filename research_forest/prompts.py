@@ -124,7 +124,7 @@ def extract_prompt(p: Paper, contexts: list[str], own_sentences: list[str] = ())
     return "\n\n".join(parts)
 
 
-GAPFILL_EXTRAS = {"tables", "limitation_sections", "table_refs"}  # non-field keys of PassageFinder.find()
+GAPFILL_EXTRAS = {"tables", "limitation_sections", "table_refs", "bibliography"}  # non-field keys of PassageFinder.find()
 
 
 def gapfill_fields(passages: dict[str, list[str]]) -> list[str]:

@@ -200,6 +200,7 @@ async def evaluate(settings: Settings, gold_path: Path = DEFAULT_GOLD, limit: in
                 return []
 
         covered = await asyncio.gather(*(judged(g, i) for g, i in resolved))
+        await baselines.lookup_bibliography(ctx)
         baselines.link(ctx)  # resolve extracted baselines via table citations, the graph and references
         titles = {r.node: r.paper.title for r in store.papers(project)}
         linked: dict[str, dict[str, str]] = {}

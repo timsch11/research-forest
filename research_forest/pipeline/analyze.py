@@ -164,6 +164,8 @@ async def extract(ctx: Ctx, recs: list[PaperRecord], deep: bool = False) -> Extr
             # cited table labels (dicts) are only used to resolve baselines; they never enter a prompt
             if table_refs := passages.pop("table_refs", None):
                 ctx.store.set_meta(ctx.project, f"table_refs:{r.paper.id}", table_refs)
+            if bibliography := passages.pop("bibliography", None):
+                ctx.store.set_meta(ctx.project, f"bibliography:{r.paper.id}", bibliography)
             if any(looks_like_injection(t) for texts in passages.values() for t in texts):
                 ctx.log(f"warning: instruction-like text in full text of {r.paper.title[:80]!r} (treated as data)")
             if passages:

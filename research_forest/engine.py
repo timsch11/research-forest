@@ -132,6 +132,7 @@ class Forest:
             stage("extract", f"Analysing {len(todo)} papers")
             await analyze.extract(ctx, todo)
         stage("lineage", "Tracing lineage: baseline comparisons and which papers build on which")
+        await baselines.lookup_bibliography(ctx)
         baselines.link(ctx)
         await analyze.relate(ctx)
         if todo:

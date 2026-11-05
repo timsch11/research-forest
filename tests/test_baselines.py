@@ -217,3 +217,67 @@ async def test_worker_table_refs_flow_through_build(settings, fake_backend, monk
     via = {(e["src"], e["dst"]): e["data"]["via"] for e in f.store.edges(project, ["compares_with"])}
     assert via[(pid("F"), pid("L"))] == "table citation"
     await f.aclose()
+
+
+# ---------------------------------------------------- name variants, titles
+
+
+@pytest.mark.parametrize("name, expected", [
+    ("XLNet (K = 6)", ["XLNet (K = 6)", "XLNet"]),
+    ("BiT (Big Transfer)", ["BiT (Big Transfer)", "BiT", "Big Transfer"]),
+    ("Megatron-LM implementation", ["Megatron-LM implementation", "Megatron-LM"]),
+    ("Transformer (Vaswani et al., 2017)", ["Transformer (Vaswani et al., 2017)", "Transformer"]),
+    ("Linformer [84]", ["Linformer [84]", "Linformer"]),
+])
+def test_name_variants(name, expected):
+    from research_forest.pipeline.baselines import name_variants
+    assert name_variants(name) == expected
+
+
+def test_by_title_word_containment_needs_uniqueness():
+    from research_forest.pipeline.baselines import by_title
+    titles = ["Rethinking Attention with Performers", "Transformers are RNNs: Fast Autoregressive Transformers with "
+              "Linear Attention", "Linformer: Self-Attention with Linear Complexity", "Attention Is All You Need"]
+    assert by_title("Performer", titles) == 0           # plural, not at the start
+    assert by_title("Linear Transformer", titles) == 1  # all words contained, unique
+    assert by_title("Linformer", titles) == 2           # 'Name:' head
+    assert by_title("Attention", titles) is None        # contained in several titles: ambiguous
+    assert by_title("RNN", titles) is None              # single short word: too ambiguous
+
+
+def test_resolve_uses_variants_and_containment():
+    assert resolve("Performer", REFS[:2] + REFS[3:], [], {}, "p:self") == ("p:perf", "reference title")
+    # with both Performer titles present, containment is ambiguous -> unresolved without a table citation
+    assert resolve("Performer", REFS, [], {}, "p:self") == (None, "unresolved")
+    assert resolve("Reformer (Kitaev et al., 2020)", REFS, [], {}, "p:self") == ("p:ref", "reference title")
+
+
+# ------------------------------------------------------ bibliography lookup
+
+
+async def test_bibliography_lookup_when_references_are_missing(forest, logs):
+    project = await forest.build("efficient attention")
+    store = forest.store
+    # a graph paper whose reference list Semantic Scholar does not have, but whose HTML bibliography does
+    store.add_papers(project, [Paper(id="X1", title="Some new model", year=2024)])
+    store.update_papers(project, ["X1"], status="included",
+                        extraction=Extraction.model_validate({
+                            "contribution": "c", "methods_proposed": [], "methods_used": [], "datasets": [],
+                            "limitations": [], "future_work": [], "missing": [], "search_terms": [],
+                            "baselines": ["Sparse Transformer", "Unknown Net"]}).model_dump_json())
+    store.set_meta(project, "bibliography:X1", [
+        {"title": "Sparse Transformer: Generating Long Sequences", "arxiv": None},
+        {"title": "Unrelated work on something else", "arxiv": None}])
+    ctx = forest.ctx(project)
+    assert await baselines.lookup_bibliography(ctx) == 1  # found via an exact title match on S2
+    baselines.link(ctx)
+    via = {(e["src"], e["dst"]): e["data"]["via"] for e in store.edges(project, ["compares_with"])}
+    assert via[(pid("X1"), pid("S"))] == "reference title"
+    assert any("Looked up 1 baseline papers" in m for m in logs)
+    assert await baselines.lookup_bibliography(ctx) == 0  # cached: never looked up twice
+
+
+def test_worker_returns_bibliography():
+    doc = worker.parse_document(CITED_TABLE.encode(), "text/html", "https://arxiv.org/html/2205.14135")
+    assert doc.bibliography == [{"title": "Rethinking attention with performers.", "arxiv": None},
+                                {"title": "Linformer: Self-attention with linear complexity.", "arxiv": "2006.04768"}]
