@@ -75,6 +75,8 @@ then analysed exactly as in a build, in a throwaway database. The report shows:
 - **proposed method found:** whether the paper's own method was extracted;
 - **papers with limitations:** how many got at least one limitation;
 - **gap filling:** how many papers needed full-text passages;
+- **baseline recall:** gold baselines that were extracted, and **baselines resolved to papers**
+  (the per-paper report lists which paper each baseline resolved to, for review);
 - **limitation recall:** judged by the LLM, plus the share of extracted limitations the authors
   state themselves, and limitations per paper;
 - per paper, which gold datasets were missed.
