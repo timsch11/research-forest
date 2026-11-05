@@ -161,11 +161,12 @@ async def extract(ctx: Ctx, recs: list[PaperRecord], deep: bool = False) -> Extr
         if fields and ctx.finder:
             passages = await ctx.finder.find(r.paper, fields, ex.search_terms, vocabulary,
                                              sections=ctx.settings.fulltext_limitation_sections)
+            # cited table labels (dicts) are only used to resolve baselines; they never enter a prompt
+            if table_refs := passages.pop("table_refs", None):
+                ctx.store.set_meta(ctx.project, f"table_refs:{r.paper.id}", table_refs)
             if any(looks_like_injection(t) for texts in passages.values() for t in texts):
                 ctx.log(f"warning: instruction-like text in full text of {r.paper.title[:80]!r} (treated as data)")
             if passages:
-                if refs := passages.get("table_refs"):  # kept for resolving baselines to papers
-                    ctx.store.set_meta(ctx.project, f"table_refs:{r.paper.id}", refs)
                 fill = await ctx.llm.json(GapFill, SYSTEM, gapfill_prompt(r.paper, ex.contribution, passages))
                 ex = merge_gapfill(ex, fill, gapfill_fields(passages))
                 gap_filled += 1

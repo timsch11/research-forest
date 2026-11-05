@@ -193,3 +193,27 @@ async def test_evaluate_reports_baselines(settings, fake_backend, tmp_path):
                                            "Performer": "Performer: Rethinking Attention with Kernels"}
     text = format_report(report)
     assert "Baseline recall" in text and "Baselines resolved to papers" in text
+
+
+async def test_worker_table_refs_flow_through_build(settings, fake_backend, monkeypatch):
+    """Regression: cited table labels (dicts) must not reach text-only checks or prompts, and must
+    resolve baselines via the table citation."""
+    from research_forest.sources import fulltext
+
+    async def fake_worker(urls, queries, settings, top_k=4, tables=False, sections=False):
+        return {"source": urls[0], "error": None, "passages": {"datasets": [{"text": "We evaluate on LRA."}]},
+                "tables": ["Table 3: LRA — columns: Models | ListOps — rows: Linformer, Performer"] if tables else [],
+                "table_refs": [{"label": "Linformer", "title": "Linformer: Self-Attention with Linear Complexity",
+                                "arxiv": None, "table": "Table 3"}] if tables else [],
+                "sections": []}
+
+    monkeypatch.setattr(fulltext, "run_worker", fake_worker)
+    settings.fulltext_always_fill_datasets = True
+    f = make_forest(settings, fake_backend)
+    project = await f.build("efficient attention")
+    included = f.store.papers(project, "included")
+    assert all(r.extraction for r in included)  # nothing failed
+    assert not any("table_refs" in u or "'label'" in u for n, u in fake_backend.calls)  # never in a prompt
+    via = {(e["src"], e["dst"]): e["data"]["via"] for e in f.store.edges(project, ["compares_with"])}
+    assert via[(pid("F"), pid("L"))] == "table citation"
+    await f.aclose()
