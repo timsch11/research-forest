@@ -57,7 +57,7 @@ hostile. Whatever an LLM produces from that input is treated as untrusted as wel
   both server-side and client-side, so `javascript:` URLs never become links. A browser test
   ([`tests/test_ui_xss.py`](../tests/test_ui_xss.py)) seeds hostile content straight into the database and checks that
   nothing executes.
-- **Limits.** Request sizes are bounded, at most `RF_MAX_JOBS` (default 2) builds or refinements
+- **Limits.** Request sizes are bounded, at most `[server] max_jobs` (default 2) builds or refinements
   run at once, node ids are validated, and the full-text search query syntax is neutralised.
 - Binding to a non-loopback address prints a warning. The traffic is plain HTTP, so put a
   TLS reverse proxy in front if you expose the server.
@@ -80,7 +80,7 @@ properties:
   again on **every redirect hop** (at most 5). If an egress proxy is configured and the host
   can't be resolved locally, resolution is left to the proxy.
 - **Content limits.** Only PDF, HTML or plain-text responses are accepted. The size limit
-  (`RF_FULLTEXT_MAX_MB`) is enforced on *decompressed* bytes, which defeats gzip bombs, and
+  (`[fulltext] max_mb`) is enforced on *decompressed* bytes, which defeats gzip bombs, and
   documents are kept in memory only.
 - **bubblewrap** (`bwrap`), when installed: read-only system and Python paths, your home
   directory hidden, a private `/tmp`, and every namespace unshared except the network.

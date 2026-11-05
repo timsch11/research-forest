@@ -1,62 +1,79 @@
 # Configuration
 
-Settings come from `RF_*` environment variables. A few CLI flags override them (`--backend`,
-`--model`, `--base-url`, `--db`, `--no-fulltext`). Boolean variables accept
-`1/true/yes/on`.
+research-forest reads two files from the working directory:
 
-Variables can also live in a `.env` file in the working directory (one `KEY=value` per line;
-`#` comments, quotes and `export` prefixes are fine). Precedence: CLI flags, then variables set
-in the terminal, then `.env`. The file is git-ignored.
-
-```bash
-# .env
-OPENAI_API_KEY=sk-...
-S2_API_KEY=...
-RF_TARGET_PAPERS=80
-```
-
-## Inference
-
-| Variable | Default | Description |
+| File | Holds | Committed? |
 |---|---|---|
-| `RF_BACKEND` | `openai` | `openai`, `claude-code` or `codex` |
-| `RF_MODEL` | `gpt-6-luna` for `openai`; the CLI's default otherwise | Model passed to the backend |
-| `RF_OPENAI_BASE_URL` / `OPENAI_BASE_URL` | `https://api.openai.com/v1` | OpenAI-compatible endpoint |
-| `RF_OPENAI_API_KEY` / `OPENAI_API_KEY` | – | API key for that endpoint |
-| `RF_LLM_CONCURRENCY` | `4` | Parallel LLM calls |
-| `RF_LLM_TIMEOUT` | `300` | Seconds per call |
-| `RF_LLM_RETRIES` | `2` | Retries after invalid output or transient errors |
-| `RF_CACHE_LLM` | `true` | Cache responses in `<db>.llmcache` |
+| `research-forest.toml` | All settings: backend, model, endpoint, limits, paths | Yes, it's safe to share |
+| `.env` | Secrets only: API keys and the web token | No, it's git-ignored |
 
-## Semantic Scholar
+Start from the templates: `research-forest.example.toml` (every option with its default) and
+`.env.example`.
 
-| Variable | Default | Description |
+**Precedence**
+- Settings: built-in defaults < config file < CLI flags (`--backend`, `--model`, `--base-url`,
+  `--db`, `--no-fulltext`). Use `--config PATH` for a config file elsewhere.
+- Secrets: `.env` < variables exported in the terminal.
+
+The config file is validated when it's loaded. Unknown keys (typos), wrong types and invalid
+backends are reported with the offending `[section] key`. Secrets placed in the config file are
+rejected, so it can never leak a key into git.
+
+## Config file (`research-forest.toml`)
+
+All settings are optional.
+
+### `[llm]`
+
+| Key | Default | Description |
 |---|---|---|
-| `RF_S2_API_KEY` / `S2_API_KEY` | – | API key (recommended) |
-| `RF_S2_RPS` | `1.0` | Client-side request rate limit |
+| `backend` | `"openai"` | `"openai"`, `"claude-code"` or `"codex"` |
+| `model` | `gpt-6-luna` for `openai`; the CLI's default otherwise | Model passed to the backend |
+| `base_url` | `"https://api.openai.com/v1"` | OpenAI-compatible endpoint |
+| `concurrency` | `4` | Parallel LLM calls |
+| `timeout` | `300` | Seconds per call |
+| `retries` | `2` | Retries after invalid output or transient errors |
+| `cache` | `true` | Cache responses in `<db_path>.llmcache` |
 
-## Pipeline
+### `[semantic_scholar]`
 
-| Variable | Default | Description |
+| Key | Default | Description |
 |---|---|---|
-| `RF_TARGET_PAPERS` | `60` | Default graph size (`-n` on `build`) |
-| `RF_MAX_CANDIDATES` | `250` | Upper bound on papers screened per screening step |
-| `RF_MAX_REFS_PER_PAPER` | `15` | In-graph references judged for builds-on per citing paper |
+| `requests_per_second` | `1.0` | Client-side request rate limit |
 
-## Full-text gap filling
+### `[pipeline]`
 
-| Variable | Default | Description |
+| Key | Default | Description |
 |---|---|---|
-| `RF_FULLTEXT_ENABLED` | `true` | Enable the sandboxed download + BM25 fallback |
-| `RF_FULLTEXT_MAX_MB` | `25` | Maximum (decompressed) download size |
-| `RF_FULLTEXT_TIMEOUT` | `90` | Seconds per document |
-| `RF_FULLTEXT_MEM_MB` | `1024` | Worker memory limit (POSIX) |
-| `RF_FULLTEXT_ALLOW_PRIVATE` | `false` | Disables the SSRF guard. **Local testing only.** |
+| `target_papers` | `60` | Default graph size (`build -n` overrides) |
+| `max_candidates` | `250` | Upper bound on papers screened per screening step |
+| `max_refs_per_paper` | `15` | In-graph references judged for builds-on per citing paper |
 
-## Web server and storage
+### `[fulltext]`
 
-| Variable | Default | Description |
+| Key | Default | Description |
 |---|---|---|
-| `RF_DB_PATH` | `research.forest.db` | SQLite file holding all landscapes (`--db`) |
-| `RF_API_TOKEN` | random per start | Fixed access token for the web API |
-| `RF_MAX_JOBS` | `2` | Concurrent build and refine jobs |
+| `enabled` | `true` | Sandboxed download + BM25 gap filling (`--no-fulltext` disables it) |
+| `max_mb` | `25` | Maximum (decompressed) download size |
+| `timeout` | `90` | Seconds per document |
+| `memory_mb` | `1024` | Worker memory limit (POSIX) |
+| `allow_private` | `false` | Disables the SSRF guard. **Local testing only.** |
+
+### `[server]` and `[storage]`
+
+| Key | Default | Description |
+|---|---|---|
+| `server.max_jobs` | `2` | Concurrent build and refine jobs |
+| `storage.db_path` | `"research.forest.db"` | SQLite file holding all landscapes (`--db` overrides) |
+
+## Secrets (`.env` or environment)
+
+| Variable | Description |
+|---|---|
+| `OPENAI_API_KEY` (or `RF_OPENAI_API_KEY`) | API key for the OpenAI-compatible endpoint |
+| `S2_API_KEY` (or `RF_S2_API_KEY`) | Semantic Scholar API key (recommended) |
+| `RF_API_TOKEN` | Fixed access token for the web API (random per start when unset) |
+
+The `.env` format is one `KEY=value` per line, and `#` comments, quotes and `export` prefixes
+are all fine. Only these secret variables are read from the environment. All other settings
+come from the config file.

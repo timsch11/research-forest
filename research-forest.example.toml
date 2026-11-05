@@ -1,0 +1,34 @@
+# research-forest configuration — copy to research-forest.toml (or pass --config PATH).
+# Every setting is optional; the values below are the defaults.
+# Secrets (API keys, the web token) do NOT go here: put them in .env (see .env.example)
+# or export them in your shell. CLI flags override this file.
+
+[llm]
+backend = "openai"            # "openai" (any OpenAI-compatible API), "claude-code" or "codex"
+# model = "gpt-6-luna"        # default: gpt-6-luna for openai, the CLI's own default otherwise
+base_url = "https://api.openai.com/v1"   # e.g. "http://localhost:11434/v1" for Ollama
+concurrency = 4               # parallel LLM calls
+timeout = 300                 # seconds per call
+retries = 2                   # retries after invalid output or transient errors
+cache = true                  # cache responses in <db_path>.llmcache
+
+[semantic_scholar]
+requests_per_second = 1.0     # client-side rate limit
+
+[pipeline]
+target_papers = 60            # default graph size (`build -n` overrides)
+max_candidates = 250          # upper bound on papers screened per screening step
+max_refs_per_paper = 15       # in-graph references judged for builds-on per citing paper
+
+[fulltext]
+enabled = true                # sandboxed download + BM25 gap filling
+max_mb = 25                   # maximum decompressed download size
+timeout = 90                  # seconds per document
+memory_mb = 1024              # worker memory limit (POSIX)
+allow_private = false         # disables the SSRF guard — local testing only
+
+[server]
+max_jobs = 2                  # concurrent build/refine jobs
+
+[storage]
+db_path = "research.forest.db"   # SQLite file holding all landscapes (`--db` overrides)

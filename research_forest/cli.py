@@ -8,13 +8,16 @@ import json
 import logging
 import sys
 
-from .config import Settings
+from .config import ConfigError, Settings
 from .engine import Forest
 
 
 def _settings(args: argparse.Namespace) -> Settings:
-    return Settings.from_env(backend=args.backend, model=args.model, openai_base_url=args.base_url,
+    try:
+        return Settings.load(args.config, backend=args.backend, model=args.model, openai_base_url=args.base_url,
                              db_path=args.db, fulltext_enabled=False if args.no_fulltext else None)
+    except ConfigError as e:
+        raise SystemExit(f"research-forest: {e}") from None
 
 
 async def _with_forest(args: argparse.Namespace, fn):
@@ -39,6 +42,8 @@ def _summary(forest: Forest, project: int) -> str:
 
 def main(argv: list[str] | None = None) -> None:
     p = argparse.ArgumentParser(prog="research-forest", description=__doc__)
+    p.add_argument("--config", default=None,
+                   help="TOML config file (default: ./research-forest.toml if present)")
     p.add_argument("--db", default=None, help="SQLite database file (default: research.forest.db)")
     p.add_argument("--backend", choices=["openai", "codex", "claude-code"], default=None)
     p.add_argument("--model", default=None)

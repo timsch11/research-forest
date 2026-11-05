@@ -234,28 +234,3 @@ def test_make_backend_dispatch(monkeypatch):
     assert make_backend(Settings(backend="codex")).name == "codex"
     with pytest.raises(ValueError):
         make_backend(Settings(backend="nope"))  # type: ignore[arg-type]
-
-
-def test_settings_from_env(monkeypatch):
-    monkeypatch.setenv("RF_BACKEND", "codex")
-    monkeypatch.setenv("RF_TARGET_PAPERS", "42")
-    monkeypatch.setenv("RF_S2_RPS", "0.5")
-    monkeypatch.setenv("RF_FULLTEXT_ENABLED", "off")
-    monkeypatch.setenv("OPENAI_API_KEY", "k")
-    s = Settings.from_env(model="m", db_path=None)
-    assert (s.backend, s.target_papers, s.s2_rps, s.fulltext_enabled, s.openai_api_key, s.model) == \
-        ("codex", 42, 0.5, False, "k", "m")
-    assert s.db_path == "research.forest.db" and s.fulltext_allow_private is False
-
-
-def test_dotenv_is_loaded_and_terminal_wins(tmp_path, monkeypatch):
-    (tmp_path / ".env").write_text(
-        "# comment\nexport RF_BACKEND=claude-code\nRF_TARGET_PAPERS='33'\n"
-        'OPENAI_API_KEY="from-file"\nRF_MODEL=m1  # trailing comment\nnot a pair\n')
-    monkeypatch.chdir(tmp_path)
-    for var in ("RF_BACKEND", "RF_TARGET_PAPERS", "RF_MODEL"):
-        monkeypatch.delenv(var, raising=False)
-    monkeypatch.setenv("OPENAI_API_KEY", "from-terminal")
-    s = Settings.from_env()
-    assert (s.backend, s.target_papers, s.model, s.openai_api_key) == ("claude-code", 33, "m1", "from-terminal")
-    assert Settings.from_env(model="cli").model == "cli"  # CLI flags beat both

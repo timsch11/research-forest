@@ -17,7 +17,7 @@ Playwright with Chromium are available, and is skipped otherwise.
 
 ```text
 research_forest/
-├── config.py          Settings (RF_* environment variables)
+├── config.py          Settings: TOML config file + secrets from .env / environment
 ├── models.py          domain objects + strict, bounded LLM output schemas
 ├── prompts.py         all prompt templates (untrusted text fenced in data blocks)
 ├── safety.py          sanitisation, data fencing, injection heuristics, URL checks

@@ -16,22 +16,33 @@ research-forest talks to LLMs through one interface. Pick the backend that suits
 
 | Backend | Setup | Good for |
 |---|---|---|
-| `openai` (default) | `export OPENAI_API_KEY=sk-…` | OpenAI or any OpenAI-compatible server: vLLM, Ollama, OpenRouter, LM Studio, … |
-| `claude-code` | `export RF_BACKEND=claude-code` and log in to the `claude` CLI | Using your Claude Code subscription |
-| `codex` | `export RF_BACKEND=codex` and log in to the `codex` CLI | Using your Codex subscription |
+| `openai` (default) | `OPENAI_API_KEY` in `.env` | OpenAI or any OpenAI-compatible server: vLLM, Ollama, OpenRouter, LM Studio, … |
+| `claude-code` | `backend = "claude-code"` in the config, and log in to the `claude` CLI | Using your Claude Code subscription |
+| `codex` | `backend = "codex"` in the config, and log in to the `codex` CLI | Using your Codex subscription |
 
-The `openai` backend defaults to `gpt-6-luna`. Override the model with `RF_MODEL` (or
-`--model`). For a local server, set the endpoint:
+Settings live in two places (see [Configuration](configuration.md)):
+- **`research-forest.toml`** holds settings like the backend, model, endpoint and graph size.
+  It is safe to commit.
+- **`.env`** holds secrets only. Variables you `export` in the terminal override it.
 
 ```bash
-export OPENAI_BASE_URL=http://localhost:11434/v1   # e.g. Ollama
-export RF_MODEL=qwen3:32b
+cp research-forest.example.toml research-forest.toml
+cp .env.example .env               # then fill in OPENAI_API_KEY and S2_API_KEY
+```
+
+The `openai` backend defaults to `gpt-6-luna`. For a local server, edit the config:
+
+```toml
+[llm]
+base_url = "http://localhost:11434/v1"   # e.g. Ollama
+model = "qwen3:32b"
 ```
 
 > [!TIP]
 > Get a free [Semantic Scholar API key](https://www.semanticscholar.org/product/api#api-key-form)
-> and `export S2_API_KEY=…`. The shared unauthenticated rate limit is low, so a 60-paper
-> build is much faster with a key. Snippet search (used for gap filling) may also require one.
+> and put it in `.env` as `S2_API_KEY`. The shared unauthenticated rate limit is low, so a
+> 60-paper build is much faster with a key. Snippet search (used for gap filling) may also
+> require one.
 
 ## Build your first landscape
 
