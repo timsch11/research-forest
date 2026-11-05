@@ -123,6 +123,12 @@ class FakeBackend(Backend):
         return {"methods_used": ["Transformer"], "datasets": [{"name": "PG-19", "usage": "evaluation"}],
                 "limitations": [{"text": "Relies on custom CUDA kernels", "source": "stated"}], "future_work": []}
 
+    def _limitationjudgement(self, user, refs):
+        # covers gold limitation [i] when an extracted line shares its first word (deterministic stand-in)
+        gold = dict(re.findall(r"^\[(\d+)\] (\S+)", user, re.M))
+        extracted = user.split('source="extracted limitations"')[1].lower()
+        return {"covered": [int(i) for i, word in gold.items() if word.lower() in extracted]}
+
     def _relations(self, user, refs):
         return {"relations": [{"ref": r, "builds_on": True, "change_type": "efficiency",
                                "component": "attention", "summary": "Makes it faster"} for r in refs]}

@@ -1,5 +1,5 @@
 {
- "description": "Gold set for `research-forest evaluate`: well-known papers with the datasets they train or evaluate on and the method they propose. Each dataset is a list of accepted aliases. Gold lists cover the main datasets, not necessarily all, so dataset precision is reported as a lower bound.",
+ "description": "Gold set for `research-forest evaluate`: well-known papers with the datasets they train or evaluate on and the method they propose. Each dataset is a list of accepted aliases. Gold lists cover the main datasets, not necessarily all, so dataset precision is reported as a lower bound. `limitations` lists weaknesses the paper itself states (empty when not curated); extracted limitations are matched against them by an LLM judge.",
  "papers": [
   {
    "id": "ARXIV:1706.03762",
@@ -26,6 +26,10 @@
      "WSJ",
      "Wall Street Journal"
     ]
+   ],
+   "limitations": [
+    "Self-attention cost grows quadratically with sequence length, so very long inputs (images, audio, video) need restricted or local attention",
+    "Generation (decoding) remains sequential/autoregressive; making it less sequential is future work"
    ]
   },
   {
@@ -60,6 +64,10 @@
      "English Wikipedia",
      "Wikipedia"
     ]
+   ],
+   "limitations": [
+    "Mismatch between pre-training and fine-tuning because the [MASK] token never appears during fine-tuning",
+    "The masked LM predicts only 15% of tokens per batch, so pre-training needs more steps to converge"
    ]
   },
   {
@@ -89,6 +97,9 @@
      "PASCAL VOC",
      "VOC"
     ]
+   ],
+   "limitations": [
+    "The extremely deep 1202-layer network does worse than the 110-layer one on CIFAR-10, attributed to overfitting on the small dataset"
    ]
   },
   {
@@ -119,7 +130,8 @@
      "Penn Treebank",
      "PTB"
     ]
-   ]
+   ],
+   "limitations": []
   },
   {
    "id": "ARXIV:2004.05150",
@@ -155,6 +167,10 @@
      "arXiv summarization",
      "arXiv"
     ]
+   ],
+   "limitations": [
+    "Needs a custom CUDA kernel (implemented with TVM) for the banded/dilated sliding-window attention",
+    "Where to place global attention is task-specific and must be chosen by hand"
    ]
   },
   {
@@ -178,6 +194,10 @@
      "WMT 2014 English-German",
      "WMT14 En-De"
     ]
+   ],
+   "limitations": [
+    "LSH attention approximates full attention; accuracy depends on the number of hashing rounds, and more rounds cost more compute",
+    "Reversible layers trade memory for extra computation because activations are recomputed in the backward pass"
    ]
   },
   {
@@ -241,6 +261,9 @@
     [
      "EPDnew"
     ]
+   ],
+   "limitations": [
+    "Sparse attention cannot universally replace dense attention: some tasks that full attention solves in O(1) layers need many more layers with sparse attention (no free lunch)"
    ]
   },
   {
@@ -272,7 +295,8 @@
     [
      "Path-X"
     ]
-   ]
+   ],
+   "limitations": []
   },
   {
    "id": "ARXIV:2111.00396",
@@ -302,6 +326,9 @@
      "WikiText-103",
      "WT103"
     ]
+   ],
+   "limitations": [
+    "Still trails Transformers on language modeling (e.g. WikiText-103 perplexity)"
    ]
   },
   {
@@ -333,6 +360,10 @@
     [
      "ECtHR"
     ]
+   ],
+   "limitations": [
+    "Requires writing a new CUDA kernel for each attention variant, which takes engineering effort and may not transfer across GPU architectures",
+    "The IO-aware algorithm targets a single GPU; extending it to multiple GPUs is left to future work"
    ]
   },
   {
@@ -376,6 +407,10 @@
     [
      "SC09"
     ]
+   ],
+   "limitations": [
+    "Not yet evaluated at larger model scales (beyond a few billion parameters)",
+    "The selection mechanism can hurt on continuous, uniformly sampled signals such as audio, where LTI (non-selective) SSMs do better"
    ]
   },
   {
@@ -417,6 +452,10 @@
     [
      "VTAB"
     ]
+   ],
+   "limitations": [
+    "Needs large-scale pre-training (ImageNet-21k or JFT-300M); trained on mid-sized data like ImageNet alone it underperforms ResNets because it lacks their inductive biases",
+    "Applying it to other vision tasks such as detection and segmentation remains open"
    ]
   },
   {
@@ -453,7 +492,8 @@
     [
      "Stories"
     ]
-   ]
+   ],
+   "limitations": []
   },
   {
    "id": "ARXIV:1910.10683",
@@ -495,6 +535,10 @@
      "WMT English-Romanian",
      "WMT En-Ro"
     ]
+   ],
+   "limitations": [
+    "The largest models are expensive to train and use, which matters where compute is limited",
+    "Pre-training data (C4) is English-only; language-agnostic models remain future work"
    ]
   },
   {
@@ -530,6 +574,10 @@
     [
      "WebNLG"
     ]
+   ],
+   "limitations": [
+    "Inputs for different tasks (with different LoRA modules) cannot easily be batched in one forward pass when the LoRA weights are merged into the model to avoid extra latency",
+    "Which weight matrices to adapt is chosen heuristically"
    ]
   },
   {
@@ -554,6 +602,9 @@
      "LSUN Church",
      "LSUN Cat"
     ]
+   ],
+   "limitations": [
+    "Log likelihoods are not competitive with other likelihood-based generative models"
    ]
   },
   {
@@ -586,7 +637,8 @@
     [
      "QQP"
     ]
-   ]
+   ],
+   "limitations": []
   }
  ]
 }

@@ -50,6 +50,8 @@ CONFIG_KEYS: dict[tuple[str, str], tuple[str, type]] = {
     ("fulltext", "limitation_sections"): ("fulltext_limitation_sections", bool),
     ("server", "max_jobs"): ("max_jobs", int),
     ("storage", "db_path"): ("db_path", str),
+    ("logging", "llm_calls"): ("llm_log_enabled", bool),
+    ("logging", "llm_log_file"): ("llm_log_file", str),
 }
 
 
@@ -141,6 +143,10 @@ class Settings:
     max_jobs: int = 2  # concurrent build/refine jobs across all projects
 
     db_path: str = "research.forest.db"
+
+    # --- logging ---
+    llm_log_enabled: bool = True  # record every LLM call (input, output, sizes) as JSON lines
+    llm_log_file: str = "research-forest-llm.jsonl"
 
     @classmethod
     def load(cls, config: str | Path | None = None, env_file: str | Path = ".env", **overrides: Any) -> "Settings":

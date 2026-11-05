@@ -57,7 +57,10 @@ research_forest/
 ## Evaluating extraction quality
 
 `eval/gold.json` holds 17 well-known papers (Transformer, BERT, ResNet, Mamba, FlashAttention,
-…), each with the datasets it uses (with accepted aliases) and the method it proposes.
+…). Each comes with the datasets it uses (with accepted aliases) and the method it proposes.
+13 of them also list limitations the paper itself states (22 in total). Limitations are free
+text, so an LLM judge, using your configured backend, decides which gold limitations each
+extraction covers.
 
 ```bash
 research-forest evaluate --out before.json          # uses your config: backend, model, …
@@ -72,6 +75,8 @@ then analysed exactly as in a build, in a throwaway database. The report shows:
 - **proposed method found:** whether the paper's own method was extracted;
 - **papers with limitations:** how many got at least one limitation;
 - **gap filling:** how many papers needed full-text passages;
+- **limitation recall:** judged by the LLM, plus the share of extracted limitations the authors
+  state themselves, and limitations per paper;
 - per paper, which gold datasets were missed.
 
 A run makes about 50 Semantic Scholar requests and 20–40 LLM calls. Add papers to the gold

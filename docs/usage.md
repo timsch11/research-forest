@@ -75,6 +75,7 @@ research-forest [--db FILE] [--backend openai|claude-code|codex] [--model NAME]
 | `search ID QUERY` | Keyword search, showing kind, node id and title |
 | `undo ID` | Undo the last refinement |
 | `evaluate [--limit N] [--out FILE] [--compare FILE]` | Score extraction quality on the gold set (see [Development](development.md#evaluating-extraction-quality)) |
+| `llm-log [FILE]` | Summarise the LLM call log: calls, cache hits, errors, words in/out and time per call type |
 | `serve [--host H] [--port P]` | Run the web explorer |
 
 All landscapes live in one SQLite file (`research.forest.db` by default), and LLM responses are

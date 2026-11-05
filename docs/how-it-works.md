@@ -117,6 +117,17 @@ in order:
    - the open-access PDF;
    - the arXiv PDF.
 
+   Besides keyword-ranked passages, reading the document yields two structured inputs:
+   - **Table summaries:** for datasets, each main-body table's caption, column headers and row
+     labels, e.g. "Table 2: Dev results… — columns: Model | SST-2 | IMDB | QNLI | QQP". Appendix
+     and supplementary tables are skipped. This is HTML only.
+   - **Limitation sections:** the Limitations, Conclusion, Discussion and Future-work sections
+     (`limitation_sections`). They fill limitations whenever the document is read. For PDFs
+     they're found with a heading heuristic.
+
+   Dataset passages come from two queries: one for evaluation benchmarks and one for training
+   and pre-training corpora, which sit in setup sections rather than results.
+
    Pages without an HTML rendering fall through to the next source. The worker splits the
    text into overlapping windows of 120 words and ranks them with BM25, a standard
    keyword-ranking algorithm.

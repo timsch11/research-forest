@@ -37,3 +37,7 @@ max_jobs = 2                  # concurrent build/refine jobs
 
 [storage]
 db_path = "research.forest.db"   # SQLite file holding all landscapes (`--db` overrides)
+
+[logging]
+llm_calls = true                 # record every LLM call: prompts, outputs, word counts, duration
+llm_log_file = "research-forest-llm.jsonl"   # one JSON object per line; `research-forest llm-log` summarises it

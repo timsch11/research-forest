@@ -10,11 +10,14 @@ import logging
 import re
 import sqlite3
 import threading
+import time
 from abc import ABC, abstractmethod
 from pathlib import Path
 from typing import Any, TypeVar
 
 from pydantic import BaseModel, ValidationError
+
+from .calllog import CallLog
 
 log = logging.getLogger(__name__)
 T = TypeVar("T", bound=BaseModel)
@@ -112,11 +115,20 @@ class LLM:
     """High-level client: ``await llm.json(Schema, system, user) -> Schema``."""
 
     def __init__(self, backend: Backend, *, concurrency: int = 4, retries: int = 2,
-                 cache: JsonCache | None = None):
+                 cache: JsonCache | None = None, call_log: "CallLog | None" = None):
         self.backend = backend
         self.retries = retries
         self.cache = cache
+        self.call_log = call_log
         self._sem = asyncio.Semaphore(concurrency)
+
+    def _record(self, call: str, attempt: int, system: str, user: str, **kw) -> None:
+        if self.call_log:
+            try:
+                self.call_log.record(backend=self.backend.name, model=self.backend.model, call=call,
+                                     attempt=attempt, system=system, user=user, **kw)
+            except OSError as e:  # logging must never break a run
+                log.warning("could not write the LLM call log: %s", e)
 
     def _key(self, schema: dict, system: str, user: str) -> str:
         h = hashlib.sha256()
@@ -128,32 +140,42 @@ class LLM:
     async def json(self, model: type[T], system: str, user: str, *, use_cache: bool = True) -> T:
         schema = strict_schema(model)
         key = self._key(schema, system, user)
+        name = model.__name__
         if use_cache and self.cache and (hit := self.cache.get(key)) is not None:
             try:
-                return model.model_validate(hit)
+                result = model.model_validate(hit)
+                self._record(name, 1, system, user, output=hit, cached=True)
+                return result
             except ValidationError:
                 pass
 
         prompt, last_err = user, None
         for attempt in range(self.retries + 1):
+            started, raw = time.monotonic(), None
             try:
                 async with self._sem:
-                    raw = await self.backend.generate(system, prompt, schema, model.__name__)
+                    raw = await self.backend.generate(system, prompt, schema, name)
                 if isinstance(raw, str) and len(raw) > MAX_OUTPUT_CHARS:
                     raise ValueError(f"output too large ({len(raw)} chars)")
                 data = parse_json(raw) if isinstance(raw, str) else raw
                 result = model.model_validate(data)
             except TransientLLMError as e:
                 last_err = e
+                self._record(name, attempt + 1, system, prompt, output=raw, error=e, started=started)
                 await asyncio.sleep(2 ** attempt * 2)
                 continue
             except (ValidationError, ValueError) as e:  # JSONDecodeError is a ValueError
                 last_err = e
+                self._record(name, attempt + 1, system, prompt, output=raw, error=_brief(e), started=started)
                 log.warning("%s returned invalid %s (attempt %d/%d): %s — retrying", self.backend.name,
                             model.__name__, attempt + 1, self.retries + 1, _brief(e))
                 prompt = (f"{user}\n\nYour previous answer was invalid ({str(e)[:500]}). "
                           "Reply with JSON that matches the schema exactly.")
                 continue
+            except BaseException as e:
+                self._record(name, attempt + 1, system, prompt, output=raw, error=e, started=started)
+                raise
+            self._record(name, attempt + 1, system, prompt, output=raw, started=started)
             if self.cache:
                 self.cache.put(key, result.model_dump(mode="json"))
             return result
