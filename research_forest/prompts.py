@@ -84,6 +84,7 @@ ABSTRACT_CHARS = 3000
 CONTEXT_CHARS, MAX_CONTEXTS = 250, 6
 RELATE_CONTEXT_CHARS, RELATE_CONTEXTS = 220, 2
 RELATE_CONTRIB_CHARS = 220
+MAX_OWN_SENTENCES = 6
 
 
 def _unique(texts, limit: int, chars: int) -> list[str]:
@@ -100,7 +101,7 @@ def _unique(texts, limit: int, chars: int) -> list[str]:
     return out
 
 
-def extract_prompt(p: Paper, contexts: list[str]) -> str:
+def extract_prompt(p: Paper, contexts: list[str], own_sentences: list[str] = ()) -> str:
     paper = [f"Title: {clip(p.title, 300)}", f"Year: {p.year or '?'}  Venue: {clip(p.venue, 120) or '?'}"]
     # The TL;DR summarises the abstract; send it only when there is no abstract.
     paper.append(f"Abstract: {clip(p.abstract, ABSTRACT_CHARS)}" if p.abstract else f"TL;DR: {clip(p.tldr, 600) or 'n/a'}")
@@ -109,10 +110,15 @@ def extract_prompt(p: Paper, contexts: list[str]) -> str:
         "methods/architectures/algorithms it builds on or compares against (not datasets, not tasks), the "
         "datasets/benchmarks it trains or evaluates on, its limitations (stated by authors, reported by citing "
         "papers, or inferred) and future work. Use widely-used canonical names (e.g. 'ImageNet-1k', not "
-        "'the ImageNet dataset'). Add a field to `missing` only if the text gives essentially no information "
+        "'the ImageNet dataset'); the paper's own sentences are the best evidence for datasets. "
+        "Add a field to `missing` only if the text gives essentially no information "
         "for it (e.g. no dataset is named at all); then give 3-6 short `search_terms` (single words or "
         "2-word phrases) likely to occur in the paper's full text.",
         data_block("paper metadata", paper)]
+    if own := _unique(own_sentences, MAX_OWN_SENTENCES, CONTEXT_CHARS):
+        # Sentences from the paper's own full text (where it cites other work): best evidence for
+        # the datasets and benchmarks it actually uses.
+        parts.append(data_block("sentences from this paper's own full text", (f"- {c}" for c in own)))
     if cites := _unique(contexts, MAX_CONTEXTS, CONTEXT_CHARS):
         parts.append(data_block("citation contexts: how other papers describe this work", (f"- {c}" for c in cites)))
     return "\n\n".join(parts)

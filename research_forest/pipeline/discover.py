@@ -3,11 +3,12 @@
 from __future__ import annotations
 
 import asyncio
+import datetime
 import math
 from collections import Counter
 from typing import Iterable, Literal
 
-from ..models import MAX_REFINE_LIMIT, Scope, Screening
+from ..models import MAX_REFINE_LIMIT, Paper, Scope, Screening
 from ..prompts import SYSTEM, prune_prompt, rescope_prompt, scope_prompt, screen_prompt
 from .context import Ctx, chunks
 
@@ -94,8 +95,21 @@ async def screen(ctx: Ctx, ids: Iterable[str] | None = None, force: bool = False
             f"{hist[0]} off-topic")
 
 
+UNKNOWN_AGE = 5  # years assumed when a paper has no publication year
+
+
+def citations_per_year(paper: Paper, current_year: int) -> float:
+    """Citation velocity: total citations divided by years since publication (at least one).
+
+    Ranking by raw citation counts favours old papers; a 2024 paper with 300 citations is
+    usually more notable than a 2014 paper with 1,000.
+    """
+    age = current_year - paper.year + 1 if paper.year else UNKNOWN_AGE
+    return paper.citation_count / max(1, age)
+
+
 def select(ctx: Ctx, count: int, pool: Iterable[str] | None = None) -> list[str]:
-    """Include up to ``count`` relevant candidates, ranked by relevance, citations and in-graph citations."""
+    """Include up to ``count`` relevant candidates, ranked by relevance, citations per year and in-graph citations."""
     if count <= 0:
         return []
     pool = None if pool is None else set(pool)
@@ -103,8 +117,9 @@ def select(ctx: Ctx, count: int, pool: Iterable[str] | None = None) -> list[str]
     incoming = Counter(e["dst"] for e in ctx.store.edges(ctx.project, ["cites"]) if e["src"] in included)
     cands = [r for r in ctx.store.papers(ctx.project, "candidate")
              if (r.relevance or 0) >= 2 and (pool is None or r.paper.id in pool)]
-    cands.sort(key=lambda r: r.relevance * 10 + 1.5 * math.log1p(r.paper.citation_count) + 3 * incoming[r.node],
-               reverse=True)
+    year = datetime.date.today().year
+    cands.sort(key=lambda r: r.relevance * 10 + 2.0 * math.log1p(citations_per_year(r.paper, year))
+               + 3 * incoming[r.node], reverse=True)
     chosen = [r.paper.id for r in cands[:count]]
     ctx.store.update_papers(ctx.project, chosen, status="included")
     if chosen:

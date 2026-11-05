@@ -23,8 +23,8 @@ flowchart LR
    each candidate's relevance from 0 to 3, in batches of 25. Landmark papers it named itself
    start at 3.
 3. **Select.** About 60% of the paper budget is filled from the ranked candidates. Ranking
-   combines relevance, citation count and how often papers already in the graph cite the
-   candidate.
+   combines relevance, *citations per year since publication* (raw totals would favour old
+   papers) and how often papers already in the graph cite the candidate.
 4. **Snowball.** References of the graph are fetched together with their *citation contexts*
    (the sentences in which one paper cites another) and intents. References cited by two or more
    graph papers are screened and added. The rest of the budget is then topped up from the
@@ -37,9 +37,15 @@ flowchart LR
      *inferred*;
    - future work.
 
-   Its inputs are the abstract, the TL;DR and the citation contexts in which *other* papers
-   describe this one. Those contexts are a rich source of limitations.
-6. **Gap filling.** If the extraction reports missing fields, research-forest looks for
+   Its inputs are the abstract (or the TL;DR when there is none) and two kinds of citation
+   sentences. Both come free with the citation lists, at no extra cost:
+   - **The paper's own sentences** where it cites other work. Semantic Scholar takes them from
+     the paper's full text, and the ones that read like evaluation statements ("we evaluate on
+     GLUE [12]") are the best evidence for datasets.
+   - **Sentences from other papers** that describe this one. These are a rich source of
+     limitations.
+6. **Gap filling.** If the extraction reports missing fields, *or returns an empty list of
+   datasets, limitations or methods*, research-forest looks for
    passages without reading the whole paper (see [below](#gap-filling)). A small follow-up call
    then fills *only* those fields from the passages, and the results are merged in.
 7. **Lineage.** Each citation between two graph papers is judged once: does the citing paper
@@ -104,6 +110,9 @@ in order:
    is downloaded in a [sandboxed worker](security.md#sandboxed-full-text-processing). The worker
    splits the text into overlapping windows of 120 words and ranks them with BM25, a standard
    keyword-ranking algorithm.
+
+Both searches add the dataset and method names already used most in the graph to their
+queries. If several papers evaluate on LRA or PG-19, passages naming those rank first.
 
 Only the top passages are sent to the LLM, together with the title and the one-line
 contribution, but not the abstract or citation contexts again. **Deepen** does this for every

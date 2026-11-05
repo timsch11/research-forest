@@ -11,6 +11,7 @@ from __future__ import annotations
 import asyncio
 import re
 from collections import defaultdict
+from dataclasses import dataclass
 
 from ..models import Extraction, GapFill, Grouping, MissingField, Relations
 from ..prompts import SYSTEM, extract_prompt, gapfill_prompt, normalize_prompt, relate_prompt
@@ -24,14 +25,72 @@ MAX_NORMALIZE = 400
 NORMALIZED_UPTO = "normalized_upto"  # meta key: highest entity id already normalised
 
 
-def incoming_contexts(ctx: Ctx) -> dict[str, list[str]]:
-    """Citation contexts in which included papers describe each cited paper."""
+# Cues that a sentence names datasets/benchmarks. Strong cues alone qualify a sentence; weak
+# ones ("pre-trained", "fine-tuning") only add weight, since they mostly describe methods.
+STRONG_EVIDENCE_RE = re.compile(
+    r"\b(datasets?|benchmarks?|corpus|corpora|evaluat\w* on|results? on|trained on|train on|test set|"
+    r"validation set|accuracy|perplexity|bleu|rouge|f1|top-1|exact match)\b", re.IGNORECASE)
+WEAK_EVIDENCE_RE = re.compile(r"\b(evaluat\w*|experiment\w*|pre-?train\w*|fine-?tun\w*|table \d+)\b", re.IGNORECASE)
+MAX_OWN_SENTENCES = 6
+MIN_DATASETS = 3  # fewer extracted datasets than this triggers full-text gap filling
+
+
+def evidence_score(sentence: str) -> int:
+    """0 for sentences without a strong dataset cue; otherwise 2 per strong and 1 per weak cue."""
+    strong = len(STRONG_EVIDENCE_RE.findall(sentence))
+    return 2 * strong + len(WEAK_EVIDENCE_RE.findall(sentence)) if strong else 0
+VOCABULARY_SIZE = 15  # known names per field used to steer full-text passage search
+
+
+def citation_contexts(ctx: Ctx) -> tuple[dict[str, list[str]], dict[str, list[str]]]:
+    """Two views of the stored citation sentences, from one pass over the edges.
+
+    * incoming: how included papers describe each cited paper (others' words about it);
+    * own: sentences from each paper's *own* full text where it cites other work — Semantic
+      Scholar returns them with its reference list, so they cost no extra requests. Only those
+      that look like evaluation/data statements are kept ("we evaluate on GLUE [12]").
+    """
     included = {r.node for r in ctx.store.papers(ctx.project, "included")}
-    out: dict[str, list[str]] = defaultdict(list)
+    incoming: dict[str, list[str]] = defaultdict(list)
+    own: dict[str, list[str]] = defaultdict(list)
     for e in ctx.store.edges(ctx.project, ["cites"]):
+        contexts = e["data"].get("contexts", [])
         if e["src"] in included:
-            out[e["dst"]] += e["data"].get("contexts", [])
-    return out
+            incoming[e["dst"]] += contexts
+            own[e["src"]] += [c for c in contexts if evidence_score(c)]
+    for node, sentences in own.items():  # strongest evidence first (stable for equal scores)
+        sentences.sort(key=evidence_score, reverse=True)
+    return incoming, own
+
+
+def incoming_contexts(ctx: Ctx) -> dict[str, list[str]]:
+    return citation_contexts(ctx)[0]
+
+
+def graph_vocabulary(ctx: Ctx) -> dict[str, list[str]]:
+    """The most-used dataset and method names in the graph, to steer passage search."""
+    degree: dict[str, int] = defaultdict(int)
+    for e in ctx.store.edges(ctx.project, ENTITY_EDGES):
+        degree[e["dst"]] += 1
+    vocab: dict[str, list[str]] = {"datasets": [], "methods": []}
+    for e in sorted(ctx.store.entities(ctx.project), key=lambda e: -degree[e["node"]]):
+        field = {"dataset": "datasets", "method": "methods"}.get(e["kind"])
+        if field and degree[e["node"]] and len(vocab[field]) < VOCABULARY_SIZE:
+            vocab[field].append(e["name"])
+    return vocab
+
+
+def gaps(ex: Extraction) -> list[str]:
+    """Fields to fill from full text: those the model flagged, plus any that came back empty or,
+    for datasets, thin (models rarely flag a field as missing once they found anything)."""
+    fields = list(ex.missing)
+    if len(ex.datasets) < MIN_DATASETS:
+        fields.append("datasets")
+    if not ex.limitations:
+        fields.append("limitations")
+    if not (ex.methods_proposed or ex.methods_used):
+        fields.append("methods")
+    return [f for f in ALL_FIELDS if f in fields]
 
 
 # ------------------------------------------------------------- extraction
@@ -59,13 +118,20 @@ def merge_gapfill(ex: Extraction, fill: GapFill, filled: list[str]) -> Extractio
     })
 
 
-async def extract(ctx: Ctx, recs: list[PaperRecord], deep: bool = False) -> int:
-    """Extract methods/datasets/limitations; fill gaps from full-text passages. Returns #papers done.
+@dataclass
+class ExtractStats:
+    analysed: int
+    gap_filled: int
+
+
+async def extract(ctx: Ctx, recs: list[PaperRecord], deep: bool = False) -> ExtractStats:
+    """Extract methods/datasets/limitations; fill gaps from full-text passages.
 
     ``deep`` (the *deepen* refinement) reuses an existing extraction and only adds full-text
     findings for every field.
     """
-    contexts = incoming_contexts(ctx)
+    contexts, own = citation_contexts(ctx)
+    vocabulary = graph_vocabulary(ctx) if ctx.finder else {}
     ctx.work(len(recs), (f"Re-analysing {len(recs)} papers with full-text passages" if deep else
                          f"Extracting methods, datasets and limitations from {len(recs)} papers"))
     gap_filled = 0
@@ -84,10 +150,11 @@ async def extract(ctx: Ctx, recs: list[PaperRecord], deep: bool = False) -> int:
         else:
             if any(looks_like_injection(t) for t in (r.paper.title, r.paper.abstract, r.paper.tldr, *cites[:8])):
                 ctx.log(f"warning: instruction-like text in metadata of {r.paper.title[:80]!r} (treated as data)")
-            ex = await ctx.llm.json(Extraction, SYSTEM, extract_prompt(r.paper, cites))
-        fields = ALL_FIELDS if deep else list(dict.fromkeys(ex.missing))
+            ex = await ctx.llm.json(Extraction, SYSTEM,
+                                    extract_prompt(r.paper, cites, own.get(r.node, [])[:3 * MAX_OWN_SENTENCES]))
+        fields = ALL_FIELDS if deep else gaps(ex)
         if fields and ctx.finder:
-            passages = await ctx.finder.find(r.paper, fields, ex.search_terms)
+            passages = await ctx.finder.find(r.paper, fields, ex.search_terms, vocabulary)
             if any(looks_like_injection(t) for texts in passages.values() for t in texts):
                 ctx.log(f"warning: instruction-like text in full text of {r.paper.title[:80]!r} (treated as data)")
             if passages:
@@ -102,7 +169,7 @@ async def extract(ctx: Ctx, recs: list[PaperRecord], deep: bool = False) -> int:
         ctx.log(f"Could not analyse {r.paper.title[:80]!r}: {e}")
     ctx.log(f"Analysed {len(recs) - len(failed)}/{len(recs)} papers"
             + (f"; {gap_filled} were completed from full-text passages" if gap_filled else ""))
-    return len(recs) - len(failed)
+    return ExtractStats(len(recs) - len(failed), gap_filled)
 
 
 def apply_extraction(ctx: Ctx, paper_id: str, ex: Extraction) -> None:

@@ -1,0 +1,592 @@
+{
+ "description": "Gold set for `research-forest evaluate`: well-known papers with the datasets they train or evaluate on and the method they propose. Each dataset is a list of accepted aliases. Gold lists cover the main datasets, not necessarily all, so dataset precision is reported as a lower bound.",
+ "papers": [
+  {
+   "id": "ARXIV:1706.03762",
+   "title": "Attention Is All You Need",
+   "methods_proposed": [
+    [
+     "Transformer"
+    ]
+   ],
+   "datasets": [
+    [
+     "WMT 2014 English-German",
+     "WMT14 En-De",
+     "WMT 2014 EN-DE",
+     "newstest2014"
+    ],
+    [
+     "WMT 2014 English-French",
+     "WMT14 En-Fr",
+     "WMT 2014 EN-FR"
+    ],
+    [
+     "Penn Treebank",
+     "WSJ",
+     "Wall Street Journal"
+    ]
+   ]
+  },
+  {
+   "id": "ARXIV:1810.04805",
+   "title": "BERT",
+   "methods_proposed": [
+    [
+     "BERT"
+    ]
+   ],
+   "datasets": [
+    [
+     "GLUE"
+    ],
+    [
+     "SQuAD v1.1",
+     "SQuAD 1.1",
+     "SQuAD"
+    ],
+    [
+     "SQuAD v2.0",
+     "SQuAD 2.0"
+    ],
+    [
+     "SWAG"
+    ],
+    [
+     "BooksCorpus",
+     "BookCorpus"
+    ],
+    [
+     "English Wikipedia",
+     "Wikipedia"
+    ]
+   ]
+  },
+  {
+   "id": "ARXIV:1512.03385",
+   "title": "Deep Residual Learning for Image Recognition",
+   "methods_proposed": [
+    [
+     "ResNet",
+     "Residual Network",
+     "residual learning"
+    ]
+   ],
+   "datasets": [
+    [
+     "ImageNet",
+     "ILSVRC",
+     "ImageNet-1k"
+    ],
+    [
+     "CIFAR-10"
+    ],
+    [
+     "COCO",
+     "MS COCO"
+    ],
+    [
+     "PASCAL VOC",
+     "VOC"
+    ]
+   ]
+  },
+  {
+   "id": "ARXIV:1901.02860",
+   "title": "Transformer-XL",
+   "methods_proposed": [
+    [
+     "Transformer-XL"
+    ]
+   ],
+   "datasets": [
+    [
+     "WikiText-103",
+     "WT103"
+    ],
+    [
+     "enwik8"
+    ],
+    [
+     "text8"
+    ],
+    [
+     "One Billion Word",
+     "1B Word",
+     "LM1B"
+    ],
+    [
+     "Penn Treebank",
+     "PTB"
+    ]
+   ]
+  },
+  {
+   "id": "ARXIV:2004.05150",
+   "title": "Longformer",
+   "methods_proposed": [
+    [
+     "Longformer"
+    ]
+   ],
+   "datasets": [
+    [
+     "text8"
+    ],
+    [
+     "enwik8"
+    ],
+    [
+     "WikiHop"
+    ],
+    [
+     "TriviaQA"
+    ],
+    [
+     "HotpotQA"
+    ],
+    [
+     "IMDB"
+    ],
+    [
+     "Hyperpartisan"
+    ],
+    [
+     "arXiv summarization",
+     "arXiv"
+    ]
+   ]
+  },
+  {
+   "id": "ARXIV:2001.04451",
+   "title": "Reformer",
+   "methods_proposed": [
+    [
+     "Reformer"
+    ]
+   ],
+   "datasets": [
+    [
+     "enwik8"
+    ],
+    [
+     "ImageNet-64",
+     "imagenet64",
+     "ImageNet 64x64"
+    ],
+    [
+     "WMT 2014 English-German",
+     "WMT14 En-De"
+    ]
+   ]
+  },
+  {
+   "id": "ARXIV:2007.14062",
+   "title": "Big Bird",
+   "methods_proposed": [
+    [
+     "BigBird",
+     "Big Bird"
+    ]
+   ],
+   "datasets": [
+    [
+     "HotpotQA"
+    ],
+    [
+     "Natural Questions",
+     "NQ"
+    ],
+    [
+     "TriviaQA"
+    ],
+    [
+     "WikiHop"
+    ],
+    [
+     "arXiv"
+    ],
+    [
+     "PubMed"
+    ],
+    [
+     "BigPatent"
+    ],
+    [
+     "BookCorpus",
+     "BooksCorpus"
+    ],
+    [
+     "CC-News"
+    ],
+    [
+     "Stories"
+    ],
+    [
+     "Wikipedia"
+    ],
+    [
+     "CNN/Daily Mail",
+     "CNN/DM",
+     "CNN/DailyMail"
+    ],
+    [
+     "BBC XSum",
+     "XSum"
+    ],
+    [
+     "IMDB",
+     "IMDb"
+    ],
+    [
+     "EPDnew"
+    ]
+   ]
+  },
+  {
+   "id": "ARXIV:2011.04006",
+   "title": "Long Range Arena",
+   "methods_proposed": [
+    [
+     "Long Range Arena",
+     "LRA"
+    ]
+   ],
+   "datasets": [
+    [
+     "ListOps"
+    ],
+    [
+     "IMDB"
+    ],
+    [
+     "AAN",
+     "ACL Anthology Network"
+    ],
+    [
+     "CIFAR-10"
+    ],
+    [
+     "Pathfinder"
+    ],
+    [
+     "Path-X"
+    ]
+   ]
+  },
+  {
+   "id": "ARXIV:2111.00396",
+   "title": "S4",
+   "methods_proposed": [
+    [
+     "S4",
+     "Structured State Space"
+    ]
+   ],
+   "datasets": [
+    [
+     "Long Range Arena",
+     "LRA"
+    ],
+    [
+     "Speech Commands",
+     "SC10",
+     "SC35"
+    ],
+    [
+     "sequential CIFAR-10",
+     "sCIFAR",
+     "CIFAR-10"
+    ],
+    [
+     "WikiText-103",
+     "WT103"
+    ]
+   ]
+  },
+  {
+   "id": "ARXIV:2205.14135",
+   "title": "FlashAttention",
+   "methods_proposed": [
+    [
+     "FlashAttention"
+    ]
+   ],
+   "datasets": [
+    [
+     "Wikipedia",
+     "English Wikipedia"
+    ],
+    [
+     "OpenWebText"
+    ],
+    [
+     "Long Range Arena",
+     "LRA"
+    ],
+    [
+     "Path-X"
+    ],
+    [
+     "MIMIC-III"
+    ],
+    [
+     "ECtHR"
+    ]
+   ]
+  },
+  {
+   "id": "ARXIV:2312.00752",
+   "title": "Mamba",
+   "methods_proposed": [
+    [
+     "Mamba",
+     "selective state space"
+    ]
+   ],
+   "datasets": [
+    [
+     "The Pile",
+     "Pile"
+    ],
+    [
+     "LAMBADA"
+    ],
+    [
+     "HellaSwag"
+    ],
+    [
+     "PIQA"
+    ],
+    [
+     "ARC",
+     "ARC-Easy",
+     "ARC-Challenge"
+    ],
+    [
+     "WinoGrande"
+    ],
+    [
+     "HG38",
+     "human genome"
+    ],
+    [
+     "YouTubeMix"
+    ],
+    [
+     "SC09"
+    ]
+   ]
+  },
+  {
+   "id": "ARXIV:2010.11929",
+   "title": "An Image is Worth 16x16 Words",
+   "methods_proposed": [
+    [
+     "Vision Transformer",
+     "ViT"
+    ]
+   ],
+   "datasets": [
+    [
+     "ImageNet",
+     "ILSVRC-2012",
+     "ImageNet-1k"
+    ],
+    [
+     "ImageNet-21k"
+    ],
+    [
+     "JFT-300M",
+     "JFT"
+    ],
+    [
+     "CIFAR-10"
+    ],
+    [
+     "CIFAR-100"
+    ],
+    [
+     "Oxford-IIIT Pets",
+     "Pets"
+    ],
+    [
+     "Oxford Flowers-102",
+     "Flowers"
+    ],
+    [
+     "VTAB"
+    ]
+   ]
+  },
+  {
+   "id": "ARXIV:1907.11692",
+   "title": "RoBERTa",
+   "methods_proposed": [
+    [
+     "RoBERTa"
+    ]
+   ],
+   "datasets": [
+    [
+     "GLUE"
+    ],
+    [
+     "SQuAD"
+    ],
+    [
+     "RACE"
+    ],
+    [
+     "BookCorpus",
+     "BooksCorpus"
+    ],
+    [
+     "Wikipedia"
+    ],
+    [
+     "CC-News"
+    ],
+    [
+     "OpenWebText"
+    ],
+    [
+     "Stories"
+    ]
+   ]
+  },
+  {
+   "id": "ARXIV:1910.10683",
+   "title": "T5",
+   "methods_proposed": [
+    [
+     "T5",
+     "Text-to-Text Transfer Transformer"
+    ]
+   ],
+   "datasets": [
+    [
+     "C4",
+     "Colossal Clean Crawled Corpus"
+    ],
+    [
+     "GLUE"
+    ],
+    [
+     "SuperGLUE"
+    ],
+    [
+     "SQuAD"
+    ],
+    [
+     "CNN/Daily Mail",
+     "CNN/DM",
+     "CNN Daily Mail"
+    ],
+    [
+     "WMT English-German",
+     "WMT En-De"
+    ],
+    [
+     "WMT English-French",
+     "WMT En-Fr"
+    ],
+    [
+     "WMT English-Romanian",
+     "WMT En-Ro"
+    ]
+   ]
+  },
+  {
+   "id": "ARXIV:2106.09685",
+   "title": "LoRA",
+   "methods_proposed": [
+    [
+     "LoRA",
+     "Low-Rank Adaptation"
+    ]
+   ],
+   "datasets": [
+    [
+     "GLUE"
+    ],
+    [
+     "E2E NLG",
+     "E2E"
+    ],
+    [
+     "WikiSQL"
+    ],
+    [
+     "MultiNLI",
+     "MNLI"
+    ],
+    [
+     "SAMSum"
+    ],
+    [
+     "DART"
+    ],
+    [
+     "WebNLG"
+    ]
+   ]
+  },
+  {
+   "id": "ARXIV:2006.11239",
+   "title": "Denoising Diffusion Probabilistic Models",
+   "methods_proposed": [
+    [
+     "DDPM",
+     "diffusion probabilistic model"
+    ]
+   ],
+   "datasets": [
+    [
+     "CIFAR-10"
+    ],
+    [
+     "CelebA-HQ"
+    ],
+    [
+     "LSUN",
+     "LSUN Bedroom",
+     "LSUN Church",
+     "LSUN Cat"
+    ]
+   ]
+  },
+  {
+   "id": "ARXIV:2006.04768",
+   "title": "Linformer",
+   "methods_proposed": [
+    [
+     "Linformer"
+    ]
+   ],
+   "datasets": [
+    [
+     "BookCorpus",
+     "BooksCorpus"
+    ],
+    [
+     "Wikipedia",
+     "English Wikipedia"
+    ],
+    [
+     "SST-2",
+     "SST"
+    ],
+    [
+     "IMDB"
+    ],
+    [
+     "QNLI"
+    ],
+    [
+     "QQP"
+    ]
+   ]
+  }
+ ]
+}

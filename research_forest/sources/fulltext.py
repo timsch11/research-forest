@@ -23,13 +23,22 @@ log = logging.getLogger(__name__)
 WORKER = Path(__file__).with_name("fulltext_worker.py")
 WORKER_GRACE = 15.0  # seconds on top of the download timeout before the worker is killed
 
-# Generic BM25 queries per missing field; extended with LLM-suggested search terms.
+# Per missing field: a keyword query for local BM25 (bag of words) and a natural-language query
+# for Semantic Scholar snippet search. Both are extended with LLM-suggested search terms and with
+# names already known in the graph (the best vocabulary for finding e.g. dataset mentions).
 FIELD_QUERIES = {
-    "datasets": "dataset datasets benchmark corpus evaluate evaluation experiments trained train test split",
+    "datasets": "evaluate evaluated evaluation experiments results benchmark benchmarks dataset datasets corpus "
+                "trained training pretrained test split table accuracy",
     "limitations": "limitation limitations limited drawback fails failure however cannot restrict assumption "
                    "future work weakness",
-    "methods": "propose proposed method approach architecture model framework algorithm",
+    "methods": "propose proposed method approach architecture model framework algorithm baseline compare",
 }
+SNIPPET_QUERIES = {
+    "datasets": "we evaluate on datasets and benchmarks; experiments are trained and tested on",
+    "limitations": "limitations of our approach; it fails when; future work",
+    "methods": "we propose a method; we compare against baselines",
+}
+MAX_VOCABULARY = 12
 _ENV_PASSTHROUGH = ("PATH", "LANG", "LC_ALL", "HTTPS_PROXY", "HTTP_PROXY", "NO_PROXY", "https_proxy",
                     "http_proxy", "no_proxy", "SSL_CERT_FILE", "SSL_CERT_DIR", "REQUESTS_CA_BUNDLE",
                     "SYSTEMROOT", "WINDIR", "COMSPEC")  # Windows needs SYSTEMROOT for sockets/crypto
@@ -107,12 +116,21 @@ class PassageFinder:
         self.s2, self.settings = s2, settings
         self._sem = asyncio.Semaphore(2)
 
-    async def find(self, paper: Paper, fields: list[str], terms: list[str], top_k: int = 4) -> dict[str, list[str]]:
+    async def find(self, paper: Paper, fields: list[str], terms: list[str], vocabulary: dict[str, list[str]] | None = None,
+                   top_k: int = 4) -> dict[str, list[str]]:
+        """Passages per field: S2 snippets first, then the sandboxed BM25 worker for what is left.
+
+        ``vocabulary`` maps a field to names already known in the graph (e.g. datasets other
+        papers use); they are added to both queries so passages that name them rank first.
+        """
         extra = " ".join(terms)
-        queries = {f: f"{FIELD_QUERIES.get(f, f)} {extra}".strip() for f in fields}
+        known = {f: " ".join((vocabulary or {}).get(f, [])[:MAX_VOCABULARY]) for f in fields}
+        queries = {f: " ".join(x for x in (FIELD_QUERIES.get(f, f), extra, known[f]) if x) for f in fields}
+        snippet_queries = [" ".join(x for x in (SNIPPET_QUERIES.get(f, f), extra, known[f]) if x)[:300]
+                           for f in fields]
 
         found: dict[str, list[str]] = {}
-        snippet_lists = await asyncio.gather(*(self.s2.snippets(q, paper.id, top_k) for q in queries.values()))
+        snippet_lists = await asyncio.gather(*(self.s2.snippets(q, paper.id, top_k) for q in snippet_queries))
         for field, snippets in zip(queries, snippet_lists):
             if snippets:
                 found[field] = snippets

@@ -111,7 +111,8 @@ class FakeBackend(Backend):
                 "methods_proposed": [{"name": name, "description": f"The {name} method"}],
                 "methods_used": ["Transformer"] if "Attention Is All" not in title else [],
                 "datasets": [{"name": "WikiText-103", "usage": "evaluation"},
-                             {"name": "WikiText 103 (WT103)" if "Mamba" in title else "LRA", "usage": "evaluation"}],
+                             {"name": "WikiText 103 (WT103)" if "Mamba" in title else "LRA", "usage": "evaluation"},
+                             {"name": "enwik8", "usage": "evaluation"}],
                 "limitations": [{"text": "Relies on custom CUDA kernels", "source": "stated"}] if gap_filled else
                                [{"text": "Quadratic memory in sequence length", "source": "inferred"}],
                 "future_work": ["Scale to longer contexts"],

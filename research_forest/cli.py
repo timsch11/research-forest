@@ -7,6 +7,7 @@ import asyncio
 import json
 import logging
 import sys
+from pathlib import Path
 
 from .config import ConfigError, Settings
 from .engine import Forest
@@ -67,6 +68,11 @@ def main(argv: list[str] | None = None) -> None:
     sub.add_parser("list", help="list landscapes")
     u = sub.add_parser("undo", help="undo the last refinement")
     u.add_argument("project", type=int)
+    ev = sub.add_parser("evaluate", help="score extraction quality on the gold set (eval/gold.json)")
+    ev.add_argument("--gold", default="eval/gold.json")
+    ev.add_argument("--limit", type=int, default=None, help="only the first N gold papers")
+    ev.add_argument("--out", default=None, help="write the full JSON report here")
+    ev.add_argument("--compare", default=None, help="a previous JSON report to show deltas against")
     sv = sub.add_parser("serve", help="run the web explorer")
     sv.add_argument("--host", default="127.0.0.1")
     sv.add_argument("--port", type=int, default=8000)
@@ -86,6 +92,15 @@ def main(argv: list[str] | None = None) -> None:
         shown = "127.0.0.1" if args.host in ("0.0.0.0", "::") else args.host
         print(f"research-forest explorer: http://{shown}:{args.port}/?token={app.state.token}", file=sys.stderr)
         uvicorn.run(app, host=args.host, port=args.port, log_level="warning")
+        return
+
+    if args.cmd == "evaluate":
+        from .evaluation import evaluate, format_report, load_report
+        report = asyncio.run(evaluate(_settings(args), Path(args.gold), args.limit,
+                                      on_log=lambda m: print(m, file=sys.stderr)))
+        if args.out:
+            Path(args.out).write_text(json.dumps(report, indent=2), encoding="utf-8")
+        print(format_report(report, load_report(args.compare) if args.compare else None))
         return
 
     async def run(forest: Forest):

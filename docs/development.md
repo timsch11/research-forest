@@ -54,6 +54,33 @@ research_forest/
 | `test_web.py`, `test_cli.py` | Auth, CSRF, headers, input validation, job limits, CLI commands |
 | `test_ui_xss.py` | Hostile data rendered in a real browser |
 
+## Evaluating extraction quality
+
+`eval/gold.json` holds 17 well-known papers (Transformer, BERT, ResNet, Mamba, FlashAttention,
+…), each with the datasets it uses (with accepted aliases) and the method it proposes.
+
+```bash
+research-forest evaluate --out before.json          # uses your config: backend, model, …
+# … change a prompt, a query or the model …
+research-forest evaluate --compare before.json      # shows deltas
+```
+
+Each paper is fetched from Semantic Scholar with its references and a sample of citing papers,
+then analysed exactly as in a build, in a throwaway database. The report shows:
+- **dataset recall:** the share of gold datasets that were extracted;
+- **dataset precision:** a lower bound, because gold lists cover only the main datasets;
+- **proposed method found:** whether the paper's own method was extracted;
+- **papers with limitations:** how many got at least one limitation;
+- **gap filling:** how many papers needed full-text passages;
+- per paper, which gold datasets were missed.
+
+A run makes about 50 Semantic Scholar requests and 20–40 LLM calls. Add papers to the gold
+set to cover your own field.
+
+For reference, with Claude Haiku through the `claude-code` backend and no Semantic Scholar key,
+the evidence and ranking changes raised dataset recall from 56% to 73% and precision from 85%
+to 90%.
+
 ## Extending
 
 **Add an inference backend.** Subclass `llm.base.Backend` and implement

@@ -1,0 +1,145 @@
+"""Extraction quality evaluation against a small gold set (``eval/gold.json``).
+
+Each gold paper is fetched from Semantic Scholar together with its references (whose citation
+sentences are the paper's own text) and a sample of citing papers (whose sentences describe it),
+then analysed exactly like in a build. Reported per paper and overall:
+
+* dataset recall: gold datasets that were extracted (each gold dataset is a list of aliases);
+* dataset precision (lower bound): extracted datasets matching a gold dataset. Gold lists hold
+  the main datasets, so unmatched predictions are not necessarily wrong;
+* proposed-method hit rate, and how many papers got at least one limitation;
+* how many papers needed full-text gap filling.
+
+Run with ``research-forest evaluate``; it uses a throwaway database and never touches yours.
+"""
+
+from __future__ import annotations
+
+import json
+import re
+import tempfile
+from dataclasses import replace
+from pathlib import Path
+from typing import Any, Callable
+
+from .config import Settings
+from .engine import Forest
+from .models import Scope
+from .pipeline import analyze, discover
+from .store import entity_key, pid
+
+DEFAULT_GOLD = Path("eval/gold.json")
+CITATION_SAMPLE = 30  # citing papers fetched per gold paper, for incoming citation contexts
+
+
+def _tokens(name: str) -> set[str]:
+    return set(re.findall(r"[a-z]+|\d+", name.lower()))
+
+
+def matches(predicted: str, aliases: list[str]) -> bool:
+    """True if ``predicted`` names the same thing as one of ``aliases``.
+
+    Equal normalised keys, or one name's tokens contained in the other's ("Wikipedia" vs
+    "English Wikipedia", "ImageNet" vs "ImageNet-1k"), while "CIFAR-10" never matches "CIFAR-100".
+    """
+    key, toks = entity_key(predicted), _tokens(predicted)
+    for alias in aliases:
+        a_toks = _tokens(alias)
+        if key == entity_key(alias) or (toks and a_toks and (toks <= a_toks or a_toks <= toks)):
+            return True
+    return False
+
+
+def score_paper(gold: dict, extraction) -> dict:
+    predicted = [d.name for d in extraction.datasets] if extraction else []
+    gold_sets: list[list[str]] = gold["datasets"]
+    found = [aliases[0] for aliases in gold_sets if any(matches(p, aliases) for p in predicted)]
+    correct = [p for p in predicted if any(matches(p, aliases) for aliases in gold_sets)]
+    proposed = [m.name for m in extraction.methods_proposed] if extraction else []
+    return {
+        "id": gold["id"], "title": gold["title"],
+        "dataset_recall": len(found) / len(gold_sets) if gold_sets else 1.0,
+        "dataset_precision": len(correct) / len(predicted) if predicted else 0.0,
+        "method_hit": any(matches(m, aliases) for m in proposed for aliases in gold.get("methods_proposed", [])),
+        "has_limitations": bool(extraction and extraction.limitations),
+        "datasets_found": found,
+        "datasets_missed": [a[0] for a in gold_sets if a[0] not in found],
+        "datasets_extra": [p for p in predicted if p not in correct],
+        "methods_proposed": proposed,
+        "limitations": [f"{l.text} ({l.source})" for l in extraction.limitations] if extraction else [],
+    }
+
+
+def summarise(papers: list[dict], gap_filled: int) -> dict:
+    n = len(papers) or 1
+    return {
+        "papers": len(papers),
+        "dataset_recall": round(sum(p["dataset_recall"] for p in papers) / n, 3),
+        "dataset_precision_lower_bound": round(sum(p["dataset_precision"] for p in papers) / n, 3),
+        "method_hit_rate": round(sum(p["method_hit"] for p in papers) / n, 3),
+        "with_limitations": round(sum(p["has_limitations"] for p in papers) / n, 3),
+        "gap_filled_papers": gap_filled,
+    }
+
+
+async def evaluate(settings: Settings, gold_path: Path = DEFAULT_GOLD, limit: int | None = None,
+                   forest: Forest | None = None, on_log: Callable[[str], None] = print) -> dict:
+    """Run the extraction pipeline on the gold papers and score it."""
+    gold = json.loads(Path(gold_path).read_text(encoding="utf-8"))["papers"][:limit]
+    owned = forest is None
+    if owned:
+        tmp = tempfile.mkdtemp(prefix="rf-eval-")
+        forest = Forest(replace(settings, db_path=str(Path(tmp) / "eval.forest.db")))
+    forest.on_log = lambda _p, msg: on_log(f"  · {msg}")
+    store = forest.store
+    try:
+        project = store.create_project("extraction evaluation")
+        store.set_scope(project, Scope(title="Extraction evaluation", summary="Gold-set evaluation.",
+                                       search_queries=[], seed_papers=[], include_criteria="all",
+                                       exclude_criteria="none", year_min=None))
+        ctx = forest.ctx(project)
+        resolved: list[tuple[dict, str]] = []
+        for g in gold:
+            papers = await forest.s2.batch([g["id"]])
+            if not papers:
+                on_log(f"  ! not found on Semantic Scholar: {g['id']} ({g['title']})")
+                continue
+            store.add_papers(project, papers)
+            store.update_papers(project, [papers[0].id], status="included")
+            resolved.append((g, papers[0].id))
+        ids = [i for _, i in resolved]
+        await discover.fetch_links(ctx, ids, "references")  # the papers' own citation sentences
+        for paper_id in ids:  # how other papers describe them (citing papers count as in-graph)
+            links = await forest.s2.links(paper_id, "citations", limit=CITATION_SAMPLE)
+            store.add_papers(project, (p for p, _ in links))
+            store.add_citations(project, (link for _, link in links))
+            store.update_papers(project, [p.id for p, _ in links], status="included")
+        stats = await analyze.extract(ctx, store.papers(project, ids=ids))
+
+        records = {r.paper.id: r for r in store.papers(project, ids=ids)}
+        papers = [score_paper(g, records[i].extraction) for g, i in resolved]
+        return {"summary": summarise(papers, stats.gap_filled), "papers": papers,
+                "settings": {"backend": settings.backend, "model": settings.model,
+                             "fulltext": settings.fulltext_enabled}}
+    finally:
+        if owned:
+            await forest.aclose()
+
+
+def format_report(report: dict, baseline: dict | None = None) -> str:
+    s, b = report["summary"], (baseline or {}).get("summary", {})
+    rows = [("Dataset recall", "dataset_recall"), ("Dataset precision (≥)", "dataset_precision_lower_bound"),
+            ("Proposed method found", "method_hit_rate"), ("Papers with limitations", "with_limitations")]
+    lines = [f"Evaluated {s['papers']} papers ({s['gap_filled_papers']} needed full-text gap filling)", ""]
+    for label, key in rows:
+        delta = f"  ({s[key] - b[key]:+.0%} vs baseline)" if key in b else ""
+        lines.append(f"  {label:<26}{s[key]:>6.0%}{delta}")
+    lines.append("")
+    for p in sorted(report["papers"], key=lambda p: p["dataset_recall"]):
+        missed = f" — missed: {', '.join(p['datasets_missed'])}" if p["datasets_missed"] else ""
+        lines.append(f"  {p['dataset_recall']:>4.0%}  {p['title'][:40]:<40}{missed}")
+    return "\n".join(lines)
+
+
+def load_report(path: str | Path) -> dict[str, Any]:
+    return json.loads(Path(path).read_text(encoding="utf-8"))
