@@ -175,8 +175,10 @@ def fake_backend():
 
 @pytest.fixture
 def settings(tmp_path):
+    # prefer_html=False keeps pipeline tests offline: passages come from the mocked snippet API, never a
+    # real arXiv download (the HTML path has its own unit tests in test_fulltext.py).
     return Settings(db_path=str(tmp_path / "test.forest.db"), target_papers=7, s2_rps=0,
-                    fulltext_enabled=True, cache_llm=False)
+                    fulltext_enabled=True, fulltext_prefer_html=False, cache_llm=False)
 
 
 def make_forest(settings, backend, handler=s2_handler, logs: list | None = None) -> Forest:

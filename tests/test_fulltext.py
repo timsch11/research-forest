@@ -244,13 +244,35 @@ class FakeS2:
         return self._snippets
 
 
-async def test_passage_finder_prefers_snippets(tmp_path, monkeypatch):
+async def test_passage_finder_uses_snippets_first_without_arxiv_html(tmp_path, monkeypatch):
     called = []
-    monkeypatch.setattr(fulltext, "run_worker", lambda *a, **k: called.append(a))
+
+    async def fake_worker(*a, **k):
+        called.append(a)
+        return {"passages": {}}
+
+    monkeypatch.setattr(fulltext, "run_worker", fake_worker)
     finder = PassageFinder(FakeS2(["snippet text"]), local_settings(tmp_path))
-    found = await finder.find(Paper(id="p", title="t", arxiv_id="2205.14135"), ["limitations"], ["kernel"])
+    paper = Paper(id="p", title="t", pdf_url="https://example.org/p.pdf")  # no arXiv rendering
+    found = await finder.find(paper, ["limitations"], ["kernel"])
     assert found == {"limitations": ["snippet text"]} and not called
     assert "kernel" in finder.s2.queries[0]
+
+
+async def test_passage_finder_reads_arxiv_html_before_snippets(tmp_path, monkeypatch):
+    seen = {}
+
+    async def fake_worker(urls, queries, settings, top_k=4):
+        seen.update(urls=urls, queries=queries)
+        return {"source": urls[0], "error": None, "passages": {"datasets": [{"text": "Table 2: SST-2 | IMDB"}]}}
+
+    monkeypatch.setattr(fulltext, "run_worker", fake_worker)
+    s2 = FakeS2(["snippet text"])
+    finder = PassageFinder(s2, local_settings(tmp_path))
+    found = await finder.find(Paper(id="p", title="t", arxiv_id="2006.04768"), ["datasets", "limitations"], [])
+    assert seen["urls"][0] == "https://arxiv.org/html/2006.04768"
+    assert found["datasets"] == ["Table 2: SST-2 | IMDB"]  # from the HTML, not the snippet
+    assert found["limitations"] == ["snippet text"] and len(s2.queries) == 1  # snippets only for what is left
 
 
 async def test_passage_finder_falls_back_to_worker(tmp_path, monkeypatch):

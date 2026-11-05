@@ -140,19 +140,24 @@ class PassageFinder:
                            for f in fields]
 
         found: dict[str, list[str]] = {}
-        snippet_lists = await asyncio.gather(*(self.s2.snippets(q, paper.id, top_k) for q in snippet_queries))
-        for field, snippets in zip(queries, snippet_lists):
-            if snippets:
-                found[field] = snippets
-
-        remaining = {f: q for f, q in queries.items() if f not in found}
-        urls = document_urls(paper, self.settings.fulltext_prefer_html)
-        if remaining and urls and self.settings.fulltext_enabled:
-            async with self._sem:
-                res = await run_worker(list(dict.fromkeys(urls)), remaining, self.settings, top_k)
-            if res.get("error"):
-                log.info("full-text worker for %s: %s", paper.id, res["error"])
-            for field, hits in (res.get("passages") or {}).items():
-                if hits:
-                    found[field] = [h["text"] for h in hits]
+        urls = document_urls(paper, self.settings.fulltext_prefer_html) if self.settings.fulltext_enabled else []
+        # An arXiv HTML rendering beats S2's snippets (whole document, readable tables), so read it
+        # first when available; snippets then only cover what is still missing. Otherwise snippets
+        # come first, since they avoid downloading and parsing a PDF.
+        html_first = bool(urls) and self.settings.fulltext_prefer_html and "arxiv.org/html/" in urls[0]
+        order = ("document", "snippets") if html_first else ("snippets", "document")
+        for source in order:
+            remaining = [f for f in fields if f not in found]
+            if not remaining:
+                break
+            if source == "snippets":
+                lists = await asyncio.gather(*(self.s2.snippets(snippet_queries[fields.index(f)], paper.id, top_k)
+                                               for f in remaining))
+                found.update({f: snippets for f, snippets in zip(remaining, lists) if snippets})
+            elif urls:
+                async with self._sem:
+                    res = await run_worker(urls, {f: queries[f] for f in remaining}, self.settings, top_k)
+                if res.get("error"):
+                    log.info("full-text worker for %s: %s", paper.id, res["error"])
+                found.update({f: [h["text"] for h in hits] for f, hits in (res.get("passages") or {}).items() if hits})
         return found

@@ -56,8 +56,8 @@ class SemanticScholar:
         if wait > 0:
             await asyncio.sleep(wait)
 
-    async def _request(self, method: str, path: str, **kw) -> dict:
-        for attempt in range(6):
+    async def _request(self, method: str, path: str, attempts: int = 6, **kw) -> dict:
+        for attempt in range(attempts):
             await self._throttle()
             try:
                 r = await self._client.request(method, path, **kw)
@@ -115,7 +115,8 @@ class SemanticScholar:
     async def snippets(self, query: str, paper_id: str, limit: int = 5) -> list[str]:
         """Full-text snippets from S2's index for one paper (empty if unavailable)."""
         try:
-            data = await self._request("GET", "/snippet/search",
+            # optional source: fail fast instead of minutes of back-off on the shared rate limit
+            data = await self._request("GET", "/snippet/search", attempts=2,
                                        params={"query": query, "paperIds": paper_id, "limit": limit})
         except (httpx.HTTPStatusError, RuntimeError) as e:
             log.info("snippet search unavailable for %s: %s", paper_id, e)
