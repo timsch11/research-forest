@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import os
-from dataclasses import dataclass, field, fields
+from dataclasses import dataclass, fields
 from typing import Literal
 
 BackendName = Literal["openai", "codex", "claude-code"]
@@ -32,7 +32,6 @@ class Settings:
     # --- pipeline ---
     target_papers: int = 60
     max_candidates: int = 250
-    snowball_seeds: int = 15
     max_refs_per_paper: int = 15
 
     # --- sandboxed full-text worker ---
@@ -47,14 +46,11 @@ class Settings:
     max_jobs: int = 2  # concurrent build/refine jobs across all projects
 
     db_path: str = "research.forest.db"
-    extra: dict[str, str] = field(default_factory=dict)
 
     @classmethod
     def from_env(cls, **overrides) -> "Settings":
         values: dict = {}
         for f in fields(cls):
-            if f.name == "extra":
-                continue
             raw = _env(f.name.upper())
             if raw is None:
                 continue

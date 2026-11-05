@@ -124,7 +124,7 @@ async function poll() {
 
 function shortLabel(n) {
   if (n.kind !== "paper") return n.label.length > 48 ? n.label.slice(0, 46) + "…" : n.label;
-  const t = n.label.split(/[:\-–—]/)[0].trim();
+  const t = n.label.split(/:|\s[–—-]\s/)[0].trim();  // "Mamba: Linear-Time …" -> "Mamba"; keeps "FlashAttention-2"
   return `${t.length > 36 ? t.slice(0, 34) + "…" : t}${n.year ? " ’" + String(n.year).slice(2) : ""}`;
 }
 
