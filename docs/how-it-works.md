@@ -50,16 +50,30 @@ flowchart LR
    flags them as missing or returns them empty. Passages come from the paper's text (see
    [below](#gap-filling)). A small follow-up call fills *only* those fields from the passages,
    and the results are merged in.
-7. **Lineage.** Each citation between two graph papers is judged once: does the citing paper
+7. **Baselines.** Extraction and gap filling also return the paper's *baselines*: the methods
+   it compares against, mostly read from the main results tables. Each one is resolved to a
+   paper without an LLM, trying these in order:
+   - the table cell's citation ("Linformer [84]") → its bibliography entry → the reference with
+     that arXiv id or title;
+   - a graph paper that proposes a method of that name;
+   - a reference titled "Name: …".
+
+   Resolved baselines become `compares_with` edges. Papers that graph papers compare against
+   but the graph lacks are strong discovery candidates: a build adds up to `baseline_papers` of
+   them (after screening) and analyses them too. Being compared against also boosts a
+   candidate's ranking.
+8. **Lineage.** Each citation between two graph papers is judged once: does the citing paper
    *build on* the cited one? If so, the edge gets a change type, the component that changed and
-   a one-sentence summary. Pairs are batched (up to 15 per call) around a shared anchor paper.
+   a one-sentence summary. The prompt notes when the cited paper is one of the citing paper's
+   baselines; that alone doesn't decide it, since papers often compare against the work they
+   extend. Pairs are batched (up to 15 per call) around a shared anchor paper.
    During a build that is usually the citing paper. After a refinement adds papers, it is usually
    the new papers, so older papers that cite them aren't re-sent one by one.
-8. **Normalise.** Duplicate methods and datasets are merged ("WT103" → "WikiText-103"). Exact
+9. **Normalise.** Duplicate methods and datasets are merged ("WT103" → "WikiText-103"). Exact
    duplicates are merged by key; aliases by one LLM call per entity type. After the first run,
    only *new* names are sent, together with existing names that share a word, a number or
    initials with them.
-9. **Synthesise.** Limitations from all papers are grouped into 5–15 **themes**. Each theme is
+10. **Synthesise.** Limitations from all papers are grouped into 5–15 **themes**. Each theme is
    linked to the papers that have it and to the papers that address it. From these themes come
    5–12 **open research questions**, each linked to its motivating themes and relevant papers.
 
@@ -92,6 +106,7 @@ all count as *builds on*. Background citations, comparison baselines and shared 
 |---|---|---|
 | `cites` | paper → paper | citation contexts, intents, influential flag |
 | `builds_on` | paper → paper | change type, component, summary |
+| `compares_with` | paper → paper (or method, when unresolved) | baseline name as written, how it was resolved |
 | `proposes` / `uses` | paper → method | – |
 | `evaluates_on` | paper → dataset | usage (training, evaluation, both) |
 | `has_limitation` / `addresses` | paper → limitation theme | – |

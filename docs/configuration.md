@@ -48,6 +48,7 @@ All settings are optional.
 | `target_papers` | `60` | Default graph size (`build -n` overrides) |
 | `max_candidates` | `250` | Upper bound on papers screened per screening step |
 | `max_refs_per_paper` | `15` | In-graph references judged for builds-on per citing paper |
+| `baseline_papers` | `8` | Add up to this many papers that graph papers compare against in their results (0 turns it off) |
 
 ### `[fulltext]`
 
