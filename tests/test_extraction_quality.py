@@ -236,3 +236,26 @@ async def test_evaluate_survives_semantic_scholar_failures(settings, fake_backen
     report = await evaluate(settings, gold, forest=f, on_log=lines.append)
     await f.aclose()
     assert report["summary"]["papers"] == 1 and any("unavailable" in l for l in lines)
+
+
+def test_always_fill_datasets_flag():
+    three = [{"name": n, "usage": "evaluation"} for n in ("GLUE", "SQuAD", "SWAG")]
+    full = extraction(methods_used=["X"], datasets=three, limitations=[{"text": "t", "source": "stated"}])
+    assert gaps(full) == [] and gaps(full, always_datasets=True) == ["datasets"]
+
+
+async def test_always_fill_datasets_runs_gap_fill_for_every_paper(settings, fake_backend):
+    settings.fulltext_always_fill_datasets = True
+    f = make_forest(settings, fake_backend)
+    project = await f.build("efficient attention")
+    included = f.store.papers(project, "included")
+    gap_prompts = [u for n, u in fake_backend.calls if n == "GapFill"]
+    assert len(gap_prompts) == len(included)  # one per paper, although each already had 3 datasets
+    assert all("PG-19" in {d.name for d in r.extraction.datasets} for r in included)  # merged, nothing lost
+    assert all("WikiText-103" in {d.name for d in r.extraction.datasets} for r in included)
+    await f.aclose()
+
+
+def test_always_fill_datasets_is_on_by_default():
+    from research_forest.config import Settings
+    assert Settings().fulltext_always_fill_datasets is True

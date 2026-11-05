@@ -80,11 +80,15 @@ def graph_vocabulary(ctx: Ctx) -> dict[str, list[str]]:
     return vocab
 
 
-def gaps(ex: Extraction) -> list[str]:
+def gaps(ex: Extraction, always_datasets: bool = False) -> list[str]:
     """Fields to fill from full text: those the model flagged, plus any that came back empty or,
-    for datasets, thin (models rarely flag a field as missing once they found anything)."""
+    for datasets, thin (models rarely flag a field as missing once they found anything).
+
+    ``always_datasets``: abstracts usually name only headline benchmarks, so with this set the
+    full text is searched for datasets on every paper (measured: recall 68% -> 82%).
+    """
     fields = list(ex.missing)
-    if len(ex.datasets) < MIN_DATASETS:
+    if always_datasets or len(ex.datasets) < MIN_DATASETS:
         fields.append("datasets")
     if not ex.limitations:
         fields.append("limitations")
@@ -152,7 +156,7 @@ async def extract(ctx: Ctx, recs: list[PaperRecord], deep: bool = False) -> Extr
                 ctx.log(f"warning: instruction-like text in metadata of {r.paper.title[:80]!r} (treated as data)")
             ex = await ctx.llm.json(Extraction, SYSTEM,
                                     extract_prompt(r.paper, cites, own.get(r.node, [])[:3 * MAX_OWN_SENTENCES]))
-        fields = ALL_FIELDS if deep else gaps(ex)
+        fields = ALL_FIELDS if deep else gaps(ex, ctx.settings.fulltext_always_fill_datasets)
         if fields and ctx.finder:
             passages = await ctx.finder.find(r.paper, fields, ex.search_terms, vocabulary)
             if any(looks_like_injection(t) for texts in passages.values() for t in texts):

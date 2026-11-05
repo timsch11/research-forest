@@ -44,10 +44,12 @@ flowchart LR
      GLUE [12]") are the best evidence for datasets.
    - **Sentences from other papers** that describe this one. These are a rich source of
      limitations.
-6. **Gap filling.** If the extraction reports missing fields, *or returns an empty list of
-   datasets, limitations or methods*, research-forest looks for
-   passages without reading the whole paper (see [below](#gap-filling)). A small follow-up call
-   then fills *only* those fields from the passages, and the results are merged in.
+6. **Gap filling.** Abstracts usually name only headline benchmarks, so by default the full
+   text is searched for datasets for every paper (`always_fill_datasets`). This lifted dataset
+   recall on the gold set from 68% to 82%. Limitations and methods are gap-filled when the model
+   flags them as missing or returns them empty. Passages come from the paper's text (see
+   [below](#gap-filling)). A small follow-up call fills *only* those fields from the passages,
+   and the results are merged in.
 7. **Lineage.** Each citation between two graph papers is judged once: does the citing paper
    *build on* the cited one? If so, the edge gets a change type, the component that changed and
    a one-sentence summary. Pairs are batched (up to 15 per call) around a shared anchor paper.

@@ -59,6 +59,7 @@ All settings are optional.
 | `memory_mb` | `1024` | Worker memory limit (POSIX) |
 | `allow_private` | `false` | Disables the SSRF guard. **Local testing only.** |
 | `prefer_html` | `true` | Try arXiv's HTML rendering before PDFs (cleaner text, readable tables) |
+| `always_fill_datasets` | `true` | Search the full text for datasets for every paper (+1 small LLM call each). `false` does this only when fewer than 3 datasets were found |
 
 ### `[server]` and `[storage]`
 
