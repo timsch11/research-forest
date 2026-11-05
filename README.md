@@ -1,8 +1,7 @@
 <div align="center">
 
-<!-- Hero banner: add docs/assets/hero.webp, then uncomment the next line.
 <img src="docs/assets/hero.webp" alt="research-forest" width="100%">
--->
+
 
 # 🌲 research-forest
 
