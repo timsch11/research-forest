@@ -23,7 +23,7 @@ DATA_TAG = "untrusted_data"
 
 # Our delimiter tags (any spacing/case/separator variant), so data cannot forge or close them.
 _TAG_RE = re.compile(
-    r"<\s*/?\s*(?:untrusted[\s_-]*data|user[\s_-]*(?:command|request|question))\b[^>]*>", re.IGNORECASE)
+    r"<\s*/?\s*(?:untrusted[\s_-]*data|user[\s_-]*(?:command|request|(?:previous[\s_-]*)?question))\b[^>]*>", re.IGNORECASE)
 # C0/C1 controls (except \t \n \r), zero-width chars, bidi overrides/isolates, BOM, tag characters.
 _INVISIBLE_RE = re.compile(
     "[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f​-‏‪-‮⁠-⁤⁦-⁩﻿"

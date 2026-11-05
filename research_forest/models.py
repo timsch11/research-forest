@@ -100,33 +100,38 @@ class DatasetItem(BaseModel):
 
 class LimitationItem(BaseModel):
     text: Sentence = Field(description="One concise sentence")
-    source: Literal["stated", "citing", "inferred"] = Field(
-        description="stated by the authors, reported by citing papers, or inferred by you")
+    source: Literal["stated", "citing", "inferred"]
 
 
 MissingField = Literal["methods", "datasets", "limitations"]
 
 
 class Extraction(BaseModel):
-    contribution: Paragraph = Field(description="One sentence: the paper's key contribution")
+    contribution: Paragraph = Field(description="One sentence")
     methods_proposed: _capped(MethodItem, 8)
-    methods_used: _capped(Name, 20) = Field(
-        description="Names of existing methods the paper builds on or compares to")
+    methods_used: _capped(Name, 20)
     datasets: _capped(DatasetItem, 20)
     limitations: _capped(LimitationItem, 10)
     future_work: _capped(Sentence, 8)
-    missing: list[MissingField] = Field(
-        description="Fields for which the provided text was insufficient to answer confidently")
-    search_terms: _capped(_text(60), 8) = Field(
-        description="Keywords likely to appear in the full-text passages that would fill the missing fields")
+    missing: list[MissingField]
+    search_terms: _capped(_text(60), 8)
+
+
+class GapFill(BaseModel):
+    """Only the fields gap filling can add; merged into an existing :class:`Extraction`."""
+
+    methods_used: _capped(Name, 20)
+    datasets: _capped(DatasetItem, 20)
+    limitations: _capped(LimitationItem, 10)
+    future_work: _capped(Sentence, 8)
 
 
 class Relation(BaseModel):
     ref: int
-    builds_on: bool = Field(description="True only if the citing paper directly extends/modifies the cited work")
+    builds_on: bool
     change_type: ChangeType | None
-    component: _text(160) | None = Field(description="Which part of the cited work is changed, e.g. 'attention kernel'")
-    summary: Sentence | None = Field(description="One sentence: what the citing paper changes relative to the cited one")
+    component: _text(160) | None = Field(description="e.g. 'attention kernel'")
+    summary: Sentence | None
 
 
 class Relations(BaseModel):

@@ -45,7 +45,13 @@ def test_web_flow(client, built):
     hits = client.get(f"/api/projects/{pid}/search", params={"q": "flash"}).json()
     assert hits
     assert client.get(f"/api/projects/{pid}/nodes/{hits[0]['node']}").json()["neighbors"]
-    assert client.post(f"/api/projects/{pid}/ask", json={"text": "what is efficient?"}).json()["nodes"]
+    first = client.post(f"/api/projects/{pid}/ask", json={"text": "what is efficient?"}).json()
+    assert first["nodes"]
+    follow = client.post(f"/api/projects/{pid}/ask", json={"text": "and which of those are recent?", "previous": {
+        "question": "what is efficient?", "nodes": first["nodes"] + ["x:bad"]}})
+    assert follow.status_code == 200
+    too_many = {"question": "q", "nodes": ["p:A"] * 41}
+    assert client.post(f"/api/projects/{pid}/ask", json={"text": "and?", "previous": too_many}).status_code == 422
     client.post(f"/api/projects/{pid}/refine", json={"text": "only since 2020"})
     wait_ready(client, pid)
     assert client.get(f"/api/projects/{pid}").json()["snapshots"]

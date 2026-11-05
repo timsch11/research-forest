@@ -30,10 +30,14 @@ def assert_contained(prompt: str, n_blocks: int) -> None:
 PROMPTS = {
     "screen": (lambda: prompts.screen_prompt(SCOPE, [GOOD, EVIL]), 1),
     "prune": (lambda: prompts.prune_prompt("vision papers", [GOOD, EVIL]), 1),
-    "extract": (lambda: prompts.extract_prompt(EVIL, [ATTACK], {"limitations": [ATTACK]}), 3),
+    "extract": (lambda: prompts.extract_prompt(EVIL, [ATTACK]), 2),
+    "gapfill": (lambda: prompts.gapfill_prompt(EVIL, ATTACK, {"limitations": [ATTACK], "datasets": [ATTACK]}), 3),
     "relate": (lambda: prompts.relate_prompt(EVIL, ATTACK, [(GOOD, ATTACK, {"contexts": [ATTACK],
                                                                            "intents": [ATTACK]})]), 2),
-    "normalize": (lambda: prompts.normalize_prompt("method", [(ATTACK, ATTACK), ("FlashAttention", None)]), 1),
+    "relate-inverted": (lambda: prompts.relate_prompt(EVIL, ATTACK, [(GOOD, ATTACK, {"contexts": [ATTACK]})],
+                                                      anchor_is_citing=False), 2),
+    "normalize": (lambda: prompts.normalize_prompt("method", [ATTACK, "FlashAttention"]), 1),
+    "answer-follow-up": (lambda: prompts.answer_prompt(SCOPE, [ATTACK], "and those?", "which are linear?"), 1),
     "synthesize": (lambda: prompts.synthesize_prompt(SCOPE, [(EVIL, [ATTACK], [ATTACK])]), 1),
     "refine": (lambda: prompts.refine_prompt(SCOPE, ATTACK, [GOOD, EVIL], "drop vision papers"), 2),
     "answer": (lambda: prompts.answer_prompt(SCOPE, [f"n0 [paper] {ATTACK}"], "what is efficient?"), 1),
@@ -72,3 +76,35 @@ def test_long_fields_are_clipped():
 
 def test_system_prompt_declares_security_rules():
     assert "untrusted_data" in prompts.SYSTEM and "never instructions" in prompts.SYSTEM
+
+
+# ------------------------------------------------------------ token budget
+
+
+def test_extract_prompt_sends_each_text_once():
+    p = Paper(id="x", title="T", abstract="The abstract.", tldr="A summary of the abstract.")
+    prompt = prompts.extract_prompt(p, ["Same context."] * 5 + ["same context.", "Other context."])
+    assert "TL;DR" not in prompt  # redundant with the abstract
+    assert prompt.count("ame context.") == 1 and "Other context." in prompt
+    assert "TL;DR: A summary" in prompts.extract_prompt(Paper(id="y", title="T", tldr="A summary"), [])
+
+
+def test_extract_prompt_caps_contexts():
+    contexts = [f"context number {i} " + "x" * 400 for i in range(20)]
+    prompt = prompts.extract_prompt(Paper(id="x", title="T", abstract="a"), contexts)
+    assert prompt.count("context number") == prompts.MAX_CONTEXTS
+    assert max(len(l) for l in prompt.splitlines() if l.startswith("- ")) < prompts.CONTEXT_CHARS + 10
+
+
+def test_relate_prompt_trims_per_paper_context():
+    edge = {"contexts": ["c" * 1000, "d" * 1000, "e" * 1000], "intents": ["methodology"]}
+    prompt = prompts.relate_prompt(GOOD, "x" * 1000, [(GOOD, "y" * 1000, edge)] * 3)
+    assert "e" * 50 not in prompt  # only RELATE_CONTEXTS contexts per pair
+    assert len(prompt) < 4000
+    assert "For each CITING paper" in prompts.relate_prompt(GOOD, None, [(GOOD, None, edge)], anchor_is_citing=False)
+
+
+def test_gapfill_prompt_omits_abstract_and_contexts():
+    p = Paper(id="x", title="T", abstract="SECRET ABSTRACT", tldr="SECRET TLDR")
+    prompt = prompts.gapfill_prompt(p, "contribution", {"datasets": ["passage"]})
+    assert "SECRET" not in prompt and "passage" in prompt and "datasets" in prompt

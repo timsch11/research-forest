@@ -17,7 +17,8 @@ const kindOf = (k) => (KIND_SET.has(k) ? k : "paper");  // never interpolate unk
 const safeUrl = (u) => { try { const x = new URL(u); return ["http:", "https:"].includes(x.protocol) ? x.href : null; } catch { return null; } };
 const extLink = (u, label) => (safeUrl(u) ? `<a href="${esc(safeUrl(u))}" target="_blank" rel="noopener noreferrer">${label}</a>` : "");
 
-const state = { project: null, view: "lineage", mode: "refine", graph: null, logSince: 0, polling: null, running: false };
+const state = { project: null, view: "lineage", mode: "refine", graph: null, logSince: 0, polling: null, running: false,
+  lastTurn: null };  // previous question + cited nodes, so follow-ups ("which of those…") resolve
 let cy = null;
 
 async function api(path, opts = {}) {
@@ -86,6 +87,7 @@ function showStart() {
 async function openProject(id) {
   state.project = Number(id);
   state.logSince = 0;
+  state.lastTurn = null;
   $("project-select").value = id;
   $("log").innerHTML = "";
   $("answer").classList.add("hidden");
@@ -309,7 +311,9 @@ async function submitCommand(ev) {
     } else {
       $("answer").classList.remove("hidden");
       $("answer").innerHTML = `<span class="muted">Thinking…</span>`;
-      const res = await api(`/api/projects/${state.project}/ask`, { method: "POST", body });
+      const res = await api(`/api/projects/${state.project}/ask`, { method: "POST",
+        body: JSON.stringify({ text, previous: state.lastTurn }) });
+      state.lastTurn = { question: text, nodes: res.nodes.slice(0, 40) };
       $("answer").innerHTML = renderAnswer(res.answer);
       highlight(res.nodes);
     }

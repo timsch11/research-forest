@@ -40,13 +40,17 @@ flowchart LR
    Its inputs are the abstract, the TL;DR and the citation contexts in which *other* papers
    describe this one. Those contexts are a rich source of limitations.
 6. **Gap filling.** If the extraction reports missing fields, research-forest looks for
-   passages without reading the whole paper (see [below](#gap-filling)), then re-extracts.
+   passages without reading the whole paper (see [below](#gap-filling)). A small follow-up call
+   then fills *only* those fields from the passages, and the results are merged in.
 7. **Lineage.** Each citation between two graph papers is judged once: does the citing paper
    *build on* the cited one? If so, the edge gets a change type, the component that changed and
-   a one-sentence summary. Each citing paper takes a single LLM call, covering up to 15 of its
-   references.
+   a one-sentence summary. Pairs are batched (up to 15 per call) around a shared anchor paper.
+   During a build that is usually the citing paper. After a refinement adds papers, it is usually
+   the new papers, so older papers that cite them aren't re-sent one by one.
 8. **Normalise.** Duplicate methods and datasets are merged ("WT103" → "WikiText-103"). Exact
-   duplicates are merged by key; aliases by one LLM call per entity type.
+   duplicates are merged by key; aliases by one LLM call per entity type. After the first run,
+   only *new* names are sent, together with existing names that share a word, a number or
+   initials with them.
 9. **Synthesise.** Limitations from all papers are grouped into 5–15 **themes**. Each theme is
    linked to the papers that have it and to the papers that address it. From these themes come
    5–12 **open research questions**, each linked to its motivating themes and relevant papers.
@@ -101,7 +105,9 @@ in order:
    splits the text into overlapping windows of 120 words and ranks them with BM25, a standard
    keyword-ranking algorithm.
 
-Only the top passages are sent to the LLM. **Deepen** forces this for every field.
+Only the top passages are sent to the LLM, together with the title and the one-line
+contribution, but not the abstract or citation contexts again. **Deepen** does this for every
+field and reuses the existing extraction.
 
 ## Incremental processing and cost
 
@@ -112,15 +118,34 @@ Work is tracked so that refinements only pay for what is new:
 | Citation links | once per paper |
 | Extraction | once per paper (again on `deepen`) |
 | Builds-on judgement | once per citation pair |
-| Normalisation | when new papers were extracted |
-| Synthesis | after a build and after each refinement |
+| Normalisation | when new methods or datasets appeared; only new names plus likely aliases are sent |
+| Synthesis | after a build, and after refinements that changed the papers (or asked for it) |
 
 LLM responses are cached on disk, keyed by backend, model, prompt and schema, so re-running an
 identical step costs nothing.
 
-A 60-paper build makes roughly 60 extraction calls, up to 60 lineage calls, 10–15 screening
-calls, plus a few scope, normalisation and synthesis calls. Some extractions take a second call
-when gaps are filled.
+A 60-paper build makes roughly 60 extraction calls, up to 60 lineage calls, 5–15 screening
+calls, plus a few scope, normalisation and synthesis calls. Papers with gaps take one extra
+small gap-fill call.
+
+### Keeping prompts lean
+
+Prompt size is budgeted per item (see the constants at the top of `prompts.py`):
+- Each abstract and set of citation contexts is sent once. The TL;DR is only used when there
+  is no abstract, and repeated citation sentences are deduplicated.
+- Lineage prompts carry two short citation contexts and a short contribution per pair.
+- Q&A sends the relevant part of the graph, not the whole graph. Method and dataset links are
+  inlined into paper lines, plain citations are left out, and open questions are only attached
+  when the question is about gaps or the questions are linked to the hits.
+- Follow-up questions re-use the nodes the previous answer cited, plus the previous question.
+  The previous answer itself is never re-sent, so context doesn't pile up over a conversation.
+- Schemas are sent as compact JSON, without descriptions that only repeat the prompt.
+
+As a reference point, a synthetic 65-paper build plus a refinement and three questions dropped
+from about 406k to 292k prompt tokens with these measures, roughly 28% less.
+
+The `claude-code` backend adds about 2k tokens of fixed CLI overhead per call. Most of it is
+served from Claude's prompt cache after the first call.
 
 ## Structured output
 

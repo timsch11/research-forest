@@ -91,6 +91,15 @@ class TextRequest(BaseModel):
     text: str = Field(min_length=2, max_length=2000)
 
 
+class PreviousTurn(BaseModel):
+    question: str = Field(max_length=2000)
+    nodes: list[str] = Field(default_factory=list, max_length=40)
+
+
+class AskRequest(TextRequest):
+    previous: PreviousTurn | None = None  # last question + the nodes its answer cited
+
+
 def _same_origin(request: Request) -> bool:
     origin = request.headers.get("origin")
     if origin is None:  # non-browser clients; still need the token
@@ -196,9 +205,12 @@ def create_app(settings: Settings, forest: Forest | None = None, token: str | No
         return {"started": True}
 
     @app.post("/api/projects/{pid}/ask")
-    async def ask(pid: int, req: TextRequest):
+    async def ask(pid: int, req: AskRequest):
         project_or_404(pid)
-        return await forest.ask(pid, req.text)
+        previous = req.previous.model_dump() if req.previous else None
+        if previous:
+            previous["nodes"] = [n for n in previous["nodes"] if valid_node(n)]
+        return await forest.ask(pid, req.text, previous)
 
     @app.post("/api/projects/{pid}/undo")
     async def undo(pid: int):

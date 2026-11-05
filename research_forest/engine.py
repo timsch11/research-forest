@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import math
+import re
 from collections import Counter, defaultdict
 from typing import Callable
 
@@ -117,22 +118,26 @@ class Forest:
         self.store.snapshot(project, command)
         self.store.set_status(project, "refining")
         try:
-            before = len(papers)
+            before = {p.id for p in papers}
+            forced = False
             for op in plan.ops:
                 ids = list(dict.fromkeys(papers[i].id for i in op.papers if 0 <= i < len(papers)))
                 ctx.log(f"op {op.action}" + (f": {op.query}" if op.query else ""))
-                await self._apply(ctx, op, ids)
-            removed = before - len({r.paper.id for r in self.store.papers(project, "included")} & {p.id for p in papers})
-            if before and removed / before > 0.5:
-                ctx.log(f"warning: this refinement removed {removed} of {before} papers — use undo if unintended")
-            await self.process(project, synthesize=True)
+                forced |= await self._apply(ctx, op, ids)
+            after = {r.paper.id for r in self.store.papers(project, "included")}
+            removed = len(before - after)
+            if before and removed / len(before) > 0.5:
+                ctx.log(f"warning: this refinement removed {removed} of {len(before)} papers — use undo if unintended")
+            # Synthesis is one of the largest prompts: skip it when the refinement changed nothing.
+            await self.process(project, synthesize=forced or after != before)
             self.store.set_status(project, "ready")
         except BaseException:
             self.store.set_status(project, "error")
             raise
         return plan
 
-    async def _apply(self, ctx: Ctx, op, ids: list[str]) -> None:
+    async def _apply(self, ctx: Ctx, op, ids: list[str]) -> bool:
+        """Run one refinement op. Returns True when it requires re-synthesis regardless of paper changes."""
         match op.action:
             case "search" if op.query:
                 hits = await discover.search(ctx, [op.query], year_min=op.year_min)
@@ -148,6 +153,7 @@ class Forest:
                 await discover.prune(ctx, op.query)
             case "deepen" if ids:
                 await analyze.extract(ctx, self.store.papers(ctx.project, ids=ids), deep=True)
+                return True
             case "rescope" if op.query:
                 new = await discover.rescope(ctx, op.query)
                 included = [r.paper.id for r in self.store.papers(ctx.project, "included")]
@@ -159,26 +165,39 @@ class Forest:
                 await discover.screen(ctx, hits)
                 discover.select(ctx, op.limit or min(discover.MAX_PAPERS_PER_OP, max(10, len(off))), hits)
             case "resynthesize":
-                pass  # process() always re-synthesises after a refinement
+                return True
             case _:
                 ctx.log(f"skipped incomplete op {op.action}")
+        return False
 
     def undo(self, project: int) -> str | None:
         return self.store.restore(project)
 
     # --------------------------------------------------------------- Q & A
 
-    async def ask(self, project: int, question: str, max_nodes: int = 60) -> dict:
-        """Answer a natural-language question from a retrieved subgraph."""
+    async def ask(self, project: int, question: str, previous: dict | None = None, max_nodes: int = 50) -> dict:
+        """Answer a natural-language question from a retrieved subgraph.
+
+        Context is kept lean: method/dataset links are inlined into paper lines instead of being
+        listed as edges, plain citations are omitted, and open questions are only attached when
+        the question asks about gaps. ``previous`` ({"question", "nodes"}) makes follow-ups like
+        "which of those…" work by re-using the nodes the last answer cited — its text is not re-sent.
+        """
         graph = self.store.graph(project)
         nodes = {n["id"]: n for n in graph["nodes"]}
         adj = defaultdict(list)
         for e in graph["edges"]:
-            adj[e["source"]].append(e)
-            adj[e["target"]].append(e)
+            if e["kind"] != "cites":
+                adj[e["source"]].append(e)
+                adj[e["target"]].append(e)
 
-        seeds = [h["node"] for h in self.store.search(project, question, limit=20, mode="OR") if h["node"] in nodes]
-        chosen = list(dict.fromkeys(seeds + [n for n, v in nodes.items() if v["kind"] == "question"][:8]))
+        follow_up = bool(previous and previous.get("question") and FOLLOW_UP.search(question))
+        carried = [n for n in (previous or {}).get("nodes", []) if n in nodes][:20] if follow_up else []
+        seeds = list(dict.fromkeys(carried + [h["node"] for h in self.store.search(project, question, limit=20,
+                                                                                    mode="OR") if h["node"] in nodes]))
+        chosen = list(seeds)
+        if GAP_INTENT.search(question) or len(seeds) < 3:
+            chosen += [n for n, v in nodes.items() if v["kind"] == "question"][:8]
         for s in seeds:
             if len(chosen) >= max_nodes:
                 break
@@ -189,30 +208,51 @@ class Forest:
         records = {r.node: r for r in self.store.papers(project, "included")}
         lines = []
         for n in chosen:
-            v = nodes[n]
             if (r := records.get(n)) is not None:
-                ex = r.extraction
-                detail = clip(ex.contribution if ex else r.paper.abstract, 220)
-                if ex:
-                    detail += f" | datasets: {', '.join(d.name for d in ex.datasets[:5]) or '-'}"
-                    detail += f" | limitations: {'; '.join(clip(l.text, 90) for l in ex.limitations[:3]) or '-'}"
-                lines.append(f"{handle[n]} [paper {r.paper.year or '?'}] {clip(r.paper.title, 300)} — {detail}")
+                lines.append(f"{handle[n]} [paper {r.paper.year or '?'}] {clip(r.paper.title, 150)} — "
+                             + _paper_summary(r))
             else:
-                lines.append(f"{handle[n]} [{v['kind']}] {clip(v['label'], 300)}")
+                lines.append(f"{handle[n]} [{nodes[n]['kind']}] {clip(nodes[n]['label'], 200)}")
         seen = set()
         for n in chosen:
             for e in adj[n]:
                 key = (e["source"], e["target"], e["kind"])
-                if key in seen or e["source"] not in handle or e["target"] not in handle:
+                if (key in seen or e["kind"] not in CONTEXT_EDGES
+                        or e["source"] not in handle or e["target"] not in handle):
                     continue
                 seen.add(key)
                 label = e["kind"] + (f"[{clip(e.get('change_type'), 20)}: {clip(e.get('summary'), 120)}]"
                                      if e["kind"] == "builds_on" else "")
                 lines.append(f"{handle[e['source']]} -{label}-> {handle[e['target']]}")
 
-        res = await self.llm.json(Answer, SYSTEM, answer_prompt(self.store.scope(project), lines, question))
+        prompt = answer_prompt(self.store.scope(project), lines, question,
+                               previous["question"] if follow_up else None)
+        res = await self.llm.json(Answer, SYSTEM, prompt)
         back = {h: n for n, h in handle.items()}
         answer = res.answer
         for h, n in back.items():
             answer = answer.replace(f"[{h}]", f"[{h}]({n})")
         return {"answer": answer, "nodes": [back[h] for h in res.nodes if h in back]}
+
+
+# Edges worth spelling out in Q&A context; method/dataset links are inlined in paper lines.
+CONTEXT_EDGES = {"builds_on", "has_limitation", "addresses", "motivates", "about"}
+GAP_INTENT = re.compile(r"\b(open|gaps?|future|unsolved|unresolved|questions?|limitations?|challenges?|"
+                        r"problems?|directions?|missing|lack)\b", re.IGNORECASE)
+FOLLOW_UP = re.compile(r"^\s*(and|also|but|so|then|what about|how about|which of|of (those|these|them))\b"
+                       r"|\b(those|these|them|they|their|it|its|that one|the same|above|previous)\b",
+                       re.IGNORECASE)
+
+
+def _paper_summary(r) -> str:
+    ex = r.extraction
+    if not ex:
+        return clip(r.paper.abstract, 200)
+    parts = [clip(ex.contribution, 200)]
+    if ex.methods_proposed:
+        parts.append("proposes: " + ", ".join(clip(m.name, 40) for m in ex.methods_proposed[:3]))
+    if ex.datasets:
+        parts.append("datasets: " + ", ".join(clip(d.name, 40) for d in ex.datasets[:5]))
+    if ex.limitations:
+        parts.append("limitations: " + "; ".join(clip(l.text, 90) for l in ex.limitations[:3]))
+    return " | ".join(parts)

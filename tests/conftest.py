@@ -106,7 +106,7 @@ class FakeBackend(Backend):
     def _extraction(self, user, refs):
         title = re.search(r"^Title: (.*)$", user, re.M).group(1)
         name = title.split(":")[0]
-        gap_filled = "full-text passages" in user.lower()
+        gap_filled = 'source="full-text passages' in user
         return {"contribution": f"{name} makes attention efficient.",
                 "methods_proposed": [{"name": name, "description": f"The {name} method"}],
                 "methods_used": ["Transformer"] if "Attention Is All" not in title else [],
@@ -117,6 +117,10 @@ class FakeBackend(Backend):
                 "future_work": ["Scale to longer contexts"],
                 "missing": ["limitations"] if name == "FlashAttention" and not gap_filled else [],
                 "search_terms": ["kernel"]}
+
+    def _gapfill(self, user, refs):
+        return {"methods_used": ["Transformer"], "datasets": [{"name": "PG-19", "usage": "evaluation"}],
+                "limitations": [{"text": "Relies on custom CUDA kernels", "source": "stated"}], "future_work": []}
 
     def _relations(self, user, refs):
         return {"relations": [{"ref": r, "builds_on": True, "change_type": "efficiency",

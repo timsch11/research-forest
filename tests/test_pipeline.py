@@ -58,9 +58,13 @@ async def test_entities_are_normalised(forest):
 
 async def test_gap_filling_uses_snippets(forest, fake_backend):
     project = await build(forest)
-    flash = forest.store.papers(project, ids=["F"])[0]
-    assert flash.extraction.limitations[0].text == "Relies on custom CUDA kernels"
-    assert any("full-text passages" in u for name, u in fake_backend.calls if name == "Extraction")
+    ex = forest.store.papers(project, ids=["F"])[0].extraction
+    assert [l.text for l in ex.limitations] == ["Quadratic memory in sequence length", "Relies on custom CUDA kernels"]
+    assert "PG-19" in {d.name for d in ex.datasets} and ex.methods_used.count("Transformer") == 1  # merged, deduped
+    assert ex.missing == []
+    gap = [u for name, u in fake_backend.calls if name == "GapFill"]
+    assert len(gap) == 1 and 'source="full-text passages' in gap[0]
+    assert "Abstract:" not in gap[0] and "citation contexts" not in gap[0]  # abstract/contexts are not re-sent
 
 
 async def test_synthesis_links_limitations_and_questions(forest):
@@ -170,8 +174,9 @@ async def test_refine_deepen_forces_full_text(forest, fake_backend):
     fake_backend.next_plan = {"explanation": "x", "ops": [op("deepen", papers=[r["T"]])]}
     start = len(fake_backend.calls)
     await forest.refine(project, "look deeper at the transformer")
-    deep = [u for n, u in fake_backend.calls[start:] if n == "Extraction" and "Attention Is All" in u]
-    assert any("full-text passages" in u for u in deep)
+    new = [(n, u) for n, u in fake_backend.calls[start:] if "Attention Is All" in u and n in ("Extraction", "GapFill")]
+    assert [n for n, _ in new] == ["GapFill"]  # the existing extraction is reused, only passages are sent
+    assert all(f'relevant to {f}' in new[0][1] for f in ("methods", "datasets", "limitations"))
 
 
 async def test_refine_rescope(forest, fake_backend):
@@ -265,3 +270,116 @@ async def test_javascript_urls_never_stored(settings, fake_backend):
     paper = f.store.papers(project, ids=["F"])[0].paper
     assert paper.url is None and paper.pdf_url.startswith("https://arxiv.org/")
     await f.aclose()
+
+
+# ------------------------------------------------------------ token budget
+
+
+def calls_since(backend, start, name=None):
+    return [(n, u) for n, u in backend.calls[start:] if name is None or n == name]
+
+
+async def test_noop_refine_skips_synthesis(forest, fake_backend):
+    project = await build(forest)
+    start = len(fake_backend.calls)
+    fake_backend.next_plan = {"explanation": "x", "ops": [op("filter", year_min=1990)]}  # removes nothing
+    await forest.refine(project, "keep everything")
+    assert [n for n, _ in calls_since(fake_backend, start)] == ["RefinePlan"]
+    fake_backend.next_plan = {"explanation": "x", "ops": [op("resynthesize")]}
+    start = len(fake_backend.calls)
+    await forest.refine(project, "refresh the open questions")
+    assert [n for n, _ in calls_since(fake_backend, start)] == ["RefinePlan", "Synthesis"]
+
+
+async def test_removal_refine_resynthesises_without_reanalysis(forest, fake_backend):
+    project = await build(forest)
+    r = refs(forest, project)
+    fake_backend.next_plan = {"explanation": "x", "ops": [op("remove", papers=[r["M"]])]}
+    start = len(fake_backend.calls)
+    await forest.refine(project, "drop mamba")
+    assert [n for n, _ in calls_since(fake_backend, start)] == ["RefinePlan", "Synthesis"]
+
+
+def test_relation_prompts_group_by_the_cheaper_side():
+    from research_forest.pipeline.analyze import plan_relation_prompts
+    # 6 old papers each cite the same new paper N: grouping by cited paper needs 1 prompt, not 6
+    pairs = [{"src": f"p:O{i}", "dst": "p:N", "data": {}} for i in range(6)]
+    plan = plan_relation_prompts(pairs, cap=15)
+    assert len(plan) == 1 and plan[0][0] == "N" and plan[0][1] is False
+    # one new paper citing 6 old ones: grouping by citing paper
+    pairs = [{"src": "p:N", "dst": f"p:O{i}", "data": {}} for i in range(6)]
+    assert [(a, citing) for a, citing, _ in plan_relation_prompts(pairs, cap=15)] == [("N", True)]
+    # large groups are chunked, nothing is dropped
+    pairs = [{"src": f"p:O{i}", "dst": "p:N", "data": {}} for i in range(40)]
+    plan = plan_relation_prompts(pairs, cap=15)
+    assert [len(b) for *_, b in plan] == [15, 15, 10]
+
+
+async def test_incremental_lineage_uses_few_prompts(forest, fake_backend):
+    project = await build(forest)
+    r = refs(forest, project)
+    fake_backend.next_plan = {"explanation": "x", "ops": [op("remove", papers=[r["T"]])]}
+    await forest.refine(project, "drop the transformer")
+    # re-adding T: four graph papers cite it, so grouping by the cited paper needs one prompt
+    forest.store.update_papers(project, ["T"], status="included")
+    for e in forest.store.edges(project, ["cites"]):
+        if e["dst"] == "p:T":
+            forest.store.add_edges(project, [(e["src"], e["dst"], "cites", {**e["data"], "judged": False})])
+    start = len(fake_backend.calls)
+    await forest.process(project)
+    relations = calls_since(fake_backend, start, "Relations")
+    assert len(relations) == 1 and "For each CITING paper" in relations[0][1]
+
+
+def test_normalisation_batch_only_new_and_plausible_aliases():
+    from research_forest.pipeline.analyze import normalisation_batch
+    ents = [{"id": i, "node": f"e:{i}", "name": n} for i, n in enumerate(
+        ["WikiText-103", "ImageNet-1k", "Long Range Arena", "GLUE", "C4"], start=1)]
+    assert normalisation_batch(ents, upto=5, degree={}) == []  # nothing new: no prompt at all
+    new = ents + [{"id": 6, "node": "e:6", "name": "WT103"}, {"id": 7, "node": "e:7", "name": "LRA"}]
+    names = {e["name"] for e in normalisation_batch(new, upto=5, degree={})}
+    assert names == {"WT103", "LRA", "WikiText-103", "Long Range Arena"}  # number run + initials blocking
+    assert len(normalisation_batch(new, upto=0, degree={})) == 7  # first run: everything
+
+
+async def test_normalisation_runs_only_when_entities_are_new(forest, fake_backend):
+    project = await build(forest)
+    from research_forest.pipeline import analyze
+    start = len(fake_backend.calls)
+    await analyze.normalize(forest.ctx(project))
+    assert calls_since(fake_backend, start, "Grouping") == []
+    for name, prompt in calls_since(fake_backend, 0, "Grouping"):
+        assert " — " not in prompt  # names only, no descriptions
+
+
+async def test_ask_context_is_lean(forest, fake_backend):
+    project = await build(forest)
+    forest.store.delete_edges(project, ["about"])  # the open question is linked only via its theme
+    await forest.ask(project, "Which datasets does FlashAttention use?")
+    prompt = fake_backend.calls[-1][1]
+    assert "-cites->" not in prompt and "-evaluates_on->" not in prompt and "-proposes->" not in prompt
+    assert "[question]" not in prompt  # no gap intent: unrelated open questions are not attached
+    assert "datasets: WikiText-103" in prompt  # method/dataset links inlined in paper lines
+    await forest.ask(project, "What open problems remain?")
+    assert "[question]" in fake_backend.calls[-1][1]
+
+
+async def test_follow_up_reuses_cited_nodes_not_answer_text(forest, fake_backend):
+    project = await build(forest)
+    first = await forest.ask(project, "Which papers improve attention efficiency?")
+    previous = {"question": "Which papers improve attention efficiency?", "nodes": first["nodes"]}
+    await forest.ask(project, "And which of those use WikiText-103?", previous)
+    prompt = fake_backend.calls[-1][1]
+    assert "<user_previous_question>" in prompt and "FlashAttention is key" not in prompt
+    await forest.ask(project, "Summarise state space models", previous)  # not a follow-up
+    assert "<user_previous_question>" not in fake_backend.calls[-1][1]
+
+
+def test_relation_prompts_anchor_on_hubs_in_mixed_batches():
+    from research_forest.pipeline.analyze import plan_relation_prompts
+    # two new papers N1, N2: each cites 4 old papers and is cited by 4 others (16 pairs)
+    pairs = [{"src": f"p:{n}", "dst": f"p:O{i}", "data": {}} for n in ("N1", "N2") for i in range(4)]
+    pairs += [{"src": f"p:C{i}", "dst": f"p:{n}", "data": {}} for n in ("N1", "N2") for i in range(4)]
+    plan = plan_relation_prompts(pairs, cap=15)
+    assert sorted((a, c) for a, c, _ in plan) == [("N1", False), ("N1", True), ("N2", False), ("N2", True)]
+    assert sum(len(b) for *_, b in plan) == 16  # 4 prompts instead of 2 + 8 (by citing) or 8 + 2 (by cited)

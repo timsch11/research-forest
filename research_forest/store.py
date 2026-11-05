@@ -42,6 +42,8 @@ CREATE INDEX IF NOT EXISTS edges_dst ON edges(project, dst);
 CREATE TABLE IF NOT EXISTS snapshots (
     project INTEGER NOT NULL, version INTEGER NOT NULL, label TEXT, created REAL NOT NULL, data TEXT NOT NULL,
     PRIMARY KEY (project, version));
+CREATE TABLE IF NOT EXISTS meta (
+    project INTEGER NOT NULL, key TEXT NOT NULL, value TEXT, PRIMARY KEY (project, key));
 CREATE VIRTUAL TABLE IF NOT EXISTS fts USING fts5(
     node UNINDEXED, project UNINDEXED, kind UNINDEXED, title, body, tokenize = 'porter unicode61');
 """
@@ -149,6 +151,14 @@ class Store:
     def set_status(self, project: int, status: str) -> None:
         with self.tx() as c:
             c.execute("UPDATE projects SET status = ?, updated = ? WHERE id = ?", (status, time.time(), project))
+
+    def meta(self, project: int, key: str, default: Any = None) -> Any:
+        rows = self.q("SELECT value FROM meta WHERE project = ? AND key = ?", (project, key))
+        return json.loads(rows[0]["value"]) if rows else default
+
+    def set_meta(self, project: int, key: str, value: Any) -> None:
+        with self.tx() as c:
+            c.execute("INSERT OR REPLACE INTO meta VALUES (?, ?, ?)", (project, key, json.dumps(value)))
 
     # ---------------------------------------------------------------- papers
 

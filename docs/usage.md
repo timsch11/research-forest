@@ -54,6 +54,10 @@ The answer comes from the part of the graph relevant to your question. Its refer
 clickable and highlighted in the graph. When the graph doesn't contain enough to answer, the
 answer says so.
 
+Follow-ups work: *"…and which of those were evaluated on PG-19?"* re-uses the nodes the last
+answer cited. Only that previous question is passed along, not its answer, so follow-ups stay
+as cheap as a fresh question.
+
 ## CLI reference
 
 ```text

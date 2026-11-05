@@ -49,7 +49,7 @@ class ClaudeCodeBackend(Backend):
         # No tools, no MCP servers, no skills/slash commands: injected text has nothing to act with.
         args = [self._bin, "-p", "--output-format", "json", "--tools", "", "--strict-mcp-config",
                 "--disable-slash-commands", "--no-session-persistence",
-                "--json-schema", json.dumps(schema), "--system-prompt", system]
+                "--json-schema", json.dumps(schema, separators=(",", ":")), "--system-prompt", system]
         if self.model:
             args += ["--model", self.model]
         with tempfile.TemporaryDirectory(prefix="rf-claude-") as cwd:
@@ -69,7 +69,7 @@ class CodexBackend(Backend):
     async def generate(self, system: str, user: str, schema: dict, schema_name: str) -> str:
         with tempfile.TemporaryDirectory(prefix="rf-codex-") as cwd:
             schema_path, out_path = Path(cwd, "schema.json"), Path(cwd, "out.json")
-            schema_path.write_text(json.dumps(schema))
+            schema_path.write_text(json.dumps(schema, separators=(",", ":")))
             args = [self._bin, "exec", "--skip-git-repo-check", "--sandbox", "read-only", "--color", "never",
                     "--output-schema", str(schema_path), "--output-last-message", str(out_path)]
             if self.model:

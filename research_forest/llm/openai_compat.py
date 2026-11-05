@@ -33,7 +33,8 @@ class OpenAIBackend(Backend):
     def _body(self, system: str, user: str, schema: dict, name: str) -> dict:
         mode = _MODES[self._mode]
         if mode in ("object", "plain"):
-            system += "\n\nRespond with a single JSON object matching this JSON schema:\n" + json.dumps(schema)
+            system += ("\n\nRespond with a single JSON object matching this JSON schema:\n"
+                       + json.dumps(schema, separators=(",", ":")))
         body: dict = {"model": self.model,
                       "messages": [{"role": "system", "content": system}, {"role": "user", "content": user}]}
         if mode in ("strict", "schema"):
