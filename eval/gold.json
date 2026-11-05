@@ -25,6 +25,11 @@
      "Penn Treebank",
      "WSJ",
      "Wall Street Journal"
+    ],
+    [
+     "BerkeleyParser corpora",
+     "BerkeleyParser",
+     "high-confidence corpora"
     ]
    ],
    "limitations": [
@@ -63,6 +68,10 @@
     [
      "English Wikipedia",
      "Wikipedia"
+    ],
+    [
+     "CoNLL-2003",
+     "CoNLL 2003"
     ]
    ],
    "limitations": [
@@ -166,6 +175,24 @@
     [
      "arXiv summarization",
      "arXiv"
+    ],
+    [
+     "OntoNotes"
+    ],
+    [
+     "Realnews",
+     "RealNews"
+    ],
+    [
+     "Stories"
+    ],
+    [
+     "BookCorpus",
+     "Books corpus"
+    ],
+    [
+     "Wikipedia",
+     "English Wikipedia"
     ]
    ],
    "limitations": [
@@ -193,6 +220,10 @@
     [
      "WMT 2014 English-German",
      "WMT14 En-De"
+    ],
+    [
+     "synthetic duplication task",
+     "duplication task"
     ]
    ],
    "limitations": [
@@ -260,6 +291,15 @@
     ],
     [
      "EPDnew"
+    ],
+    [
+     "MNLI"
+    ],
+    [
+     "SQuAD"
+    ],
+    [
+     "DeepSea"
     ]
    ],
    "limitations": [
@@ -325,6 +365,22 @@
     [
      "WikiText-103",
      "WT103"
+    ],
+    [
+     "ETTh1"
+    ],
+    [
+     "ETTh2"
+    ],
+    [
+     "ETTm1"
+    ],
+    [
+     "Weather"
+    ],
+    [
+     "ECL",
+     "Electricity"
     ]
    ],
    "limitations": [
@@ -359,6 +415,12 @@
     ],
     [
      "ECtHR"
+    ],
+    [
+     "Path-256"
+    ],
+    [
+     "MLPerf"
     ]
    ],
    "limitations": [
@@ -406,6 +468,12 @@
     ],
     [
      "SC09"
+    ],
+    [
+     "Selective Copying"
+    ],
+    [
+     "Induction Heads"
     ]
    ],
    "limitations": [
@@ -534,6 +602,14 @@
     [
      "WMT English-Romanian",
      "WMT En-Ro"
+    ],
+    [
+     "Wikipedia"
+    ],
+    [
+     "Toronto Books Corpus",
+     "BookCorpus",
+     "Toronto BookCorpus"
     ]
    ],
    "limitations": [
