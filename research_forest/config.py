@@ -9,6 +9,26 @@ from typing import Literal
 BackendName = Literal["openai", "codex", "claude-code"]
 
 
+def load_dotenv(path: str = ".env") -> None:
+    """Load ``KEY=VALUE`` lines from a .env file; variables already set in the environment win."""
+    try:
+        with open(path, encoding="utf-8") as f:
+            lines = f.read().splitlines()
+    except OSError:
+        return
+    for line in lines:
+        line = line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, value = line.removeprefix("export ").split("=", 1)
+        value = value.strip()
+        if len(value) >= 2 and value[0] == value[-1] and value[0] in "'\"":
+            value = value[1:-1]
+        elif " #" in value:
+            value = value.split(" #", 1)[0].rstrip()
+        os.environ.setdefault(key.strip(), value)
+
+
 def _env(name: str, default: str | None = None) -> str | None:
     return os.environ.get(f"RF_{name}", default)
 
@@ -49,6 +69,7 @@ class Settings:
 
     @classmethod
     def from_env(cls, **overrides) -> "Settings":
+        load_dotenv()
         values: dict = {}
         for f in fields(cls):
             raw = _env(f.name.upper())

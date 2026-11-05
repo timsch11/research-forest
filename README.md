@@ -45,6 +45,7 @@ questions**. You then shape the graph in plain language, or ask it questions.
 pip install -e .
 export OPENAI_API_KEY=sk-...        # or: export RF_BACKEND=claude-code | codex
 export S2_API_KEY=...               # optional, but much faster builds
+                                    # (or put these in a .env file)
 
 research-forest serve               # opens on http://127.0.0.1:8000/?token=…
 ```

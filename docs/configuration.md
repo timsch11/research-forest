@@ -4,6 +4,17 @@ Settings come from `RF_*` environment variables. A few CLI flags override them (
 `--model`, `--base-url`, `--db`, `--no-fulltext`). Boolean variables accept
 `1/true/yes/on`.
 
+Variables can also live in a `.env` file in the working directory (one `KEY=value` per line;
+`#` comments, quotes and `export` prefixes are fine). Precedence: CLI flags, then variables set
+in the terminal, then `.env`. The file is git-ignored.
+
+```bash
+# .env
+OPENAI_API_KEY=sk-...
+S2_API_KEY=...
+RF_TARGET_PAPERS=80
+```
+
 ## Inference
 
 | Variable | Default | Description |
