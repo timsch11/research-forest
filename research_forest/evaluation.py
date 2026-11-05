@@ -23,6 +23,8 @@ from dataclasses import replace
 from pathlib import Path
 from typing import Any, Callable
 
+import httpx
+
 from .config import Settings
 from .engine import Forest
 from .models import Scope
@@ -101,7 +103,11 @@ async def evaluate(settings: Settings, gold_path: Path = DEFAULT_GOLD, limit: in
         ctx = forest.ctx(project)
         resolved: list[tuple[dict, str]] = []
         for g in gold:
-            papers = await forest.s2.batch([g["id"]])
+            try:
+                papers = await forest.s2.batch([g["id"]])
+            except (RuntimeError, httpx.HTTPError) as e:  # e.g. exhausted retries on the shared rate limit
+                on_log(f"  ! could not fetch {g['id']} ({g['title']}): {e}")
+                continue
             if not papers:
                 on_log(f"  ! not found on Semantic Scholar: {g['id']} ({g['title']})")
                 continue
@@ -111,7 +117,11 @@ async def evaluate(settings: Settings, gold_path: Path = DEFAULT_GOLD, limit: in
         ids = [i for _, i in resolved]
         await discover.fetch_links(ctx, ids, "references")  # the papers' own citation sentences
         for paper_id in ids:  # how other papers describe them (citing papers count as in-graph)
-            links = await forest.s2.links(paper_id, "citations", limit=CITATION_SAMPLE)
+            try:
+                links = await forest.s2.links(paper_id, "citations", limit=CITATION_SAMPLE)
+            except (RuntimeError, httpx.HTTPError) as e:
+                on_log(f"  ! citing papers unavailable for {paper_id}: {e} (scored without them)")
+                continue
             store.add_papers(project, (p for p, _ in links))
             store.add_citations(project, (link for _, link in links))
             store.update_papers(project, [p.id for p, _ in links], status="included")

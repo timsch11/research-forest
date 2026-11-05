@@ -220,3 +220,19 @@ async def test_evaluate_sources(tmp_path, monkeypatch):
     assert report["summary"]["pdf"] == {"available": 0, "passage_recall": 0.0, "seconds": report["summary"]["pdf"]["seconds"]}
     text = evaluation.format_sources_report(report)
     assert "html" in text and "(n/a)" in text
+
+
+async def test_evaluate_survives_semantic_scholar_failures(settings, fake_backend, tmp_path, monkeypatch):
+    gold = tmp_path / "gold.json"
+    gold.write_text(json.dumps({"papers": [
+        {"id": "F", "title": "FlashAttention", "datasets": [["WikiText-103"]], "methods_proposed": [["FlashAttention"]]}]}))
+    f = make_forest(settings, fake_backend)
+
+    async def rate_limited(*a, **k):
+        raise RuntimeError("Semantic Scholar request failed: GET /paper/F/citations")
+
+    monkeypatch.setattr(f.s2, "links", rate_limited)
+    lines = []
+    report = await evaluate(settings, gold, forest=f, on_log=lines.append)
+    await f.aclose()
+    assert report["summary"]["papers"] == 1 and any("unavailable" in l for l in lines)
