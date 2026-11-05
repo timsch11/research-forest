@@ -32,6 +32,8 @@ PROMPTS = {
     "prune": (lambda: prompts.prune_prompt("vision papers", [GOOD, EVIL]), 1),
     "extract": (lambda: prompts.extract_prompt(EVIL, [ATTACK]), 2),
     "gapfill": (lambda: prompts.gapfill_prompt(EVIL, ATTACK, {"limitations": [ATTACK], "datasets": [ATTACK]}), 3),
+    "gapfill-structured": (lambda: prompts.gapfill_prompt(EVIL, ATTACK, {"datasets": [ATTACK], "tables": [ATTACK],
+                                                                      "limitation_sections": [ATTACK]}), 4),
     "relate": (lambda: prompts.relate_prompt(EVIL, ATTACK, [(GOOD, ATTACK, {"contexts": [ATTACK],
                                                                            "intents": [ATTACK]})]), 2),
     "relate-inverted": (lambda: prompts.relate_prompt(EVIL, ATTACK, [(GOOD, ATTACK, {"contexts": [ATTACK]})],
@@ -108,3 +110,12 @@ def test_gapfill_prompt_omits_abstract_and_contexts():
     p = Paper(id="x", title="T", abstract="SECRET ABSTRACT", tldr="SECRET TLDR")
     prompt = prompts.gapfill_prompt(p, "contribution", {"datasets": ["passage"]})
     assert "SECRET" not in prompt and "passage" in prompt and "datasets" in prompt
+
+
+def test_gapfill_fields_and_blocks():
+    passages = {"datasets": ["p"], "tables": ["Table 2 — columns: A | B"], "limitation_sections": ["6 Limitations: x"]}
+    assert prompts.gapfill_fields(passages) == ["datasets", "limitations"]
+    prompt = prompts.gapfill_prompt(GOOD, "c", passages)
+    assert "these fields: datasets, limitations" in prompt
+    assert 'source="table captions, column headers and row labels from the main paper"' in prompt
+    assert "limitations, conclusion and discussion sections" in prompt and "pre-training corpora" in prompt

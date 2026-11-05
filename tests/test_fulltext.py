@@ -262,7 +262,7 @@ async def test_passage_finder_uses_snippets_first_without_arxiv_html(tmp_path, m
 async def test_passage_finder_reads_arxiv_html_before_snippets(tmp_path, monkeypatch):
     seen = {}
 
-    async def fake_worker(urls, queries, settings, top_k=4):
+    async def fake_worker(urls, queries, settings, top_k=4, **kw):
         seen.update(urls=urls, queries=queries)
         return {"source": urls[0], "error": None, "passages": {"datasets": [{"text": "Table 2: SST-2 | IMDB"}]}}
 
@@ -271,14 +271,16 @@ async def test_passage_finder_reads_arxiv_html_before_snippets(tmp_path, monkeyp
     finder = PassageFinder(s2, local_settings(tmp_path))
     found = await finder.find(Paper(id="p", title="t", arxiv_id="2006.04768"), ["datasets", "limitations"], [])
     assert seen["urls"][0] == "https://arxiv.org/html/2006.04768"
-    assert found["datasets"] == ["Table 2: SST-2 | IMDB"]  # from the HTML, not the snippet
-    assert found["limitations"] == ["snippet text"] and len(s2.queries) == 1  # snippets only for what is left
+    assert found["datasets"][0] == "Table 2: SST-2 | IMDB"  # from the HTML first
+    assert found["limitations"] == ["snippet text"]
+    assert len(s2.queries) == 2  # snippets only for what the document left: limitations + training data
+    assert any(q.startswith("we pre-train on") for q in s2.queries)
 
 
 async def test_passage_finder_falls_back_to_worker(tmp_path, monkeypatch):
     seen = {}
 
-    async def fake_worker(urls, queries, settings, top_k=4):
+    async def fake_worker(urls, queries, settings, top_k=4, **kw):
         seen.update(urls=urls, queries=queries)
         return {"source": urls[0], "error": None, "passages": {"datasets": [{"text": "uses ImageNet"}]}}
 
@@ -348,3 +350,75 @@ def test_document_url_order():
     assert document_urls(p, prefer_html=False)[0] == "https://example.org/paper.pdf"
     assert document_urls(Paper(id="q", title="t", pdf_url="https://example.org/q.pdf")) == ["https://example.org/q.pdf"]
     assert document_urls(Paper(id="r", title="t")) == []
+
+
+# ------------------------------------------- tables and limitation sections
+
+STRUCTURED = """<html><body><article class="ltx_document">
+<section class="ltx_section"><h2 class="ltx_title">4 Experiments</h2>
+<p>We report results on GLUE.</p>
+<figure class="ltx_table"><table class="ltx_tabular">
+<tr><th>Model</th><th>SST-2</th><th>QNLI</th></tr>
+<tr><td>Ours</td><td>93.1</td><td>90.4</td></tr><tr><td>RoBERTa</td><td>92.0</td><td>90.0</td></tr></table>
+<figcaption>Table 2: Dev results on GLUE tasks.</figcaption></figure>
+<figure class="ltx_table"><figcaption>Table 3: Pretraining data.</figcaption><table class="ltx_tabular">
+<tr><td>Corpus</td><td>Size</td></tr><tr><td>BookCorpus</td><td>16GB</td></tr><tr><td>CC-News</td><td>76GB</td></tr>
+</table></figure></section>
+<section class="ltx_section"><h2 class="ltx_title">5 Conclusion</h2><p>Our method still needs long training.</p></section>
+<section class="ltx_section"><h2 class="ltx_title">6 Limitations</h2><p>It only supports English.</p></section>
+<section class="ltx_appendix"><h2 class="ltx_title">Appendix A Extra results</h2>
+<figure class="ltx_table"><table class="ltx_tabular"><tr><th>Task</th><th>SecretBench</th><th>Other</th></tr>
+<tr><td>x</td><td>1</td><td>2</td></tr></table><figcaption>Table 7: Supplementary results.</figcaption></figure>
+</section></article></body></html>"""
+
+
+def test_main_body_tables_are_summarised_appendix_skipped():
+    doc = worker.parse_document(STRUCTURED.encode(), "text/html", "https://arxiv.org/html/2006.04768")
+    assert doc.tables == [
+        "Table 2: Dev results on GLUE tasks. — columns: Model | SST-2 | QNLI — rows: Ours, RoBERTa",
+        "Table 3: Pretraining data. — columns: Corpus | Size — rows: BookCorpus, CC-News"]
+    assert "SecretBench" in doc.text  # still searchable text, just not summarised as a table
+
+
+def test_appendix_heading_without_class_also_ends_main_body():
+    html = STRUCTURED.replace('<section class="ltx_appendix"><h2 class="ltx_title">Appendix A Extra results</h2>',
+                              '<section class="ltx_section"><h2 class="ltx_title">Supplementary Material</h2>')
+    doc = worker.parse_document(html.encode(), "text/html", "https://arxiv.org/html/2006.04768")
+    assert not any("SecretBench" in t for t in doc.tables)
+
+
+def test_limitation_sections_prefer_limitations_heading():
+    doc = worker.parse_document(STRUCTURED.encode(), "text/html", "https://arxiv.org/html/2006.04768")
+    assert doc.limitation_sections() == ["6 Limitations: It only supports English.",
+                                         "5 Conclusion: Our method still needs long training."]
+
+
+def test_pdf_section_heuristic():
+    text = ("1 Introduction\nWe study things.\n5 Conclusion\nWe proposed X. It is slow on long inputs.\n"
+            "Future work could fix this.\n6 Broader Impact\nNone.\nReferences\n[1] Something.\n")
+    sections = dict(worker.pdf_sections(text))
+    assert sections["5 Conclusion"] == "We proposed X. It is slow on long inputs. Future work could fix this."
+    assert sections["6 Broader Impact"] == "None."
+
+
+def test_compact_table_edge_cases():
+    assert worker.compact_table("", [["1", "2"], ["3", "4"]]) is None  # numbers only, no caption
+    assert worker.compact_table("Table 9: Ablations.", [["1", "2"]]) == "Table 9: Ablations."
+    assert worker.compact_table("T", [["Model", "", "BLEU"], ["", "EN-DE", "EN-FR"]]) == "T — columns: Model | BLEU"
+
+
+async def test_finder_returns_tables_and_sections(tmp_path, monkeypatch):
+    seen = {}
+
+    async def fake_worker(urls, queries, settings, top_k=4, tables=False, sections=False):
+        seen.update(queries=queries, tables=tables, sections=sections)
+        return {"source": urls[0], "error": None, "tables": ["Table 2 — columns: Model | SST-2"],
+                "sections": ["6 Limitations: English only."],
+                "passages": {"datasets": [{"text": "eval passage"}], "datasets_training": [{"text": "pretrain passage"}]}}
+
+    monkeypatch.setattr(fulltext, "run_worker", fake_worker)
+    finder = PassageFinder(FakeS2([]), local_settings(tmp_path))
+    found = await finder.find(Paper(id="p", title="t", arxiv_id="2006.04768"), ["datasets"], [], sections=True)
+    assert seen["tables"] and seen["sections"] and "datasets_training" in seen["queries"]
+    assert found == {"datasets": ["eval passage", "pretrain passage"], "tables": ["Table 2 — columns: Model | SST-2"],
+                     "limitation_sections": ["6 Limitations: English only."]}

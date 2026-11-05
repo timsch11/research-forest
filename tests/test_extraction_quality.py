@@ -259,3 +259,21 @@ async def test_always_fill_datasets_runs_gap_fill_for_every_paper(settings, fake
 def test_always_fill_datasets_is_on_by_default():
     from research_forest.config import Settings
     assert Settings().fulltext_always_fill_datasets is True
+
+
+async def test_limitation_sections_fill_limitations(settings, fake_backend, monkeypatch):
+    from research_forest.sources import fulltext
+
+    async def fake_worker(urls, queries, settings, top_k=4, tables=False, sections=False):
+        return {"source": urls[0], "error": None, "passages": {}, "tables": [],
+                "sections": ["6 Limitations: The method only supports English."] if sections else []}
+
+    monkeypatch.setattr(fulltext, "run_worker", fake_worker)
+    settings.fulltext_always_fill_datasets = True
+    settings.fulltext_limitation_sections = True
+    f = make_forest(settings, fake_backend)
+    project = await f.build("efficient attention")
+    prompts_ = [u for n, u in fake_backend.calls if n == "GapFill"]
+    assert prompts_ and all("limitations, conclusion and discussion sections" in u for u in prompts_)
+    assert all("these fields: datasets, limitations" in u for u in prompts_)
+    await f.aclose()

@@ -126,6 +126,46 @@ def download(url: str, max_bytes: int, timeout: float, allow_private: bool = Fal
 
 _CELLS = re.compile(r"(?:\s*\|\s*)+")  # runs of (empty) table cells -> one separator
 _SPACES = re.compile(r"\s+")
+_NUMERIC = re.compile(r"[\d.,%±+\-–—()x×~*†‡\s]*")  # table cells that are just numbers/markers
+_APPENDIX_HEADING = re.compile(r"^\s*(?:[A-Z]\.?\s+)?(appendix|appendices|supplementary|supplemental)\b", re.I)
+_LIMITATION_HEADING = re.compile(
+    r"\b(limitations?|conclusions?|concluding remarks|discussion|future work|future directions|"
+    r"broader impacts?|societal impacts?)\b", re.I)
+MAX_TABLES, MAX_SECTIONS, SECTION_CHARS = 15, 3, 2000
+
+
+class Document:
+    """Text of a paper plus the structure gap filling uses: main-body table summaries and
+    sections (heading, text)."""
+
+    def __init__(self, text: str, tables: list[str] | None = None, sections: list[tuple[str, str]] | None = None):
+        self.text, self.tables, self.sections = text, tables or [], sections or []
+
+    def limitation_sections(self) -> list[str]:
+        """Text of Limitations / Conclusion / Discussion / Future-work sections, limitations first."""
+        hits = [(h, t) for h, t in self.sections if _LIMITATION_HEADING.search(h) and t.strip()]
+        hits.sort(key=lambda ht: "limitation" not in ht[0].lower())
+        return [f"{h}: {t}"[:SECTION_CHARS] for h, t in hits[:MAX_SECTIONS]]
+
+
+def _clean(text: str) -> str:
+    return _SPACES.sub(" ", text).strip()
+
+
+def compact_table(caption: str, rows: list[list[str]]) -> str | None:
+    """'Caption — columns: A | B | C — rows: x, y, z': where datasets and benchmarks are named."""
+    rows = [[_clean(c) for c in row] for row in rows]
+    rows = [row for row in rows if any(row)]
+    text_cells = lambda row: [c for c in row if c and not _NUMERIC.fullmatch(c)]  # noqa: E731
+    header_i = next((i for i, row in enumerate(rows) if len(text_cells(row)) >= 2), None)
+    parts = [_clean(caption)[:160]] if _clean(caption) else []
+    if header_i is not None:
+        parts.append("columns: " + " | ".join(text_cells(rows[header_i]))[:220])
+        labels = list(dict.fromkeys(row[0] for row in rows[header_i + 1:] if row and row[0]
+                                    and not _NUMERIC.fullmatch(row[0])))
+        if labels:
+            parts.append("rows: " + ", ".join(labels[:12])[:220])
+    return " — ".join(parts) if len(parts) > 1 or (parts and header_i is None) else None
 
 
 class _HTMLText(HTMLParser):
@@ -133,7 +173,9 @@ class _HTMLText(HTMLParser):
 
     Drops page chrome and parts that only add noise to passage search (bibliography, author and
     affiliation blocks, table of contents, math markup), turns block elements into line breaks
-    and keeps table cells apart with " | " so a table row stays one readable line.
+    and keeps table cells apart with " | " so a table row stays one readable line. Also records
+    section headings and, for tables in the main body (not appendices/supplementary), their
+    caption, header row and row labels.
     """
 
     SKIP_TAGS = {"head", "script", "style", "nav", "header", "footer", "noscript", "svg", "math", "button", "form"}
@@ -142,6 +184,7 @@ class _HTMLText(HTMLParser):
     BLOCK_TAGS = {"p", "div", "section", "article", "h1", "h2", "h3", "h4", "h5", "h6", "li", "tr", "table",
                   "figcaption", "caption", "figure", "blockquote", "br", "dd", "dt", "pre"}
     CELL_TAGS = {"td", "th"}
+    HEADING_TAGS = {"h2", "h3", "h4", "h5"}
     BREAK = "\x00"  # block boundary marker; never occurs in decoded page text we keep
     VOID_TAGS = {"area", "base", "br", "col", "embed", "hr", "img", "input", "link", "meta", "source", "track",
                  "wbr"}
@@ -149,8 +192,19 @@ class _HTMLText(HTMLParser):
     def __init__(self):
         super().__init__(convert_charrefs=True)
         self.parts: list[str] = []
-        self._stack: list[tuple[str, bool]] = []  # (tag, starts a skipped subtree)
+        self._stack: list[tuple[str, bool, bool, bool]] = []  # (tag, skips, starts appendix, starts table)
         self._skip = 0
+        self._appendix_after = False  # an "Appendix"/"Supplementary" heading was seen
+        self._heading: list[str] | None = None
+        self._heading_at = 0
+        self._section_starts: list[tuple[str, int, int]] = []  # (heading, heading start, body start) in parts
+        self._table: dict | None = None
+        self._cell: list[str] | None = None
+        self._caption = False
+        self.tables: list[str] = []
+
+    def _in_appendix(self) -> bool:
+        return self._appendix_after or any(appendix for _, _, appendix, _ in self._stack)
 
     def handle_starttag(self, tag, attrs):
         if tag in self.BLOCK_TAGS:
@@ -161,49 +215,130 @@ class _HTMLText(HTMLParser):
             return
         classes = set((dict(attrs).get("class") or "").split())
         skipping = tag in self.SKIP_TAGS or bool(classes & self.SKIP_CLASSES)
-        self._stack.append((tag, skipping))
+        appendix = "ltx_appendix" in classes
+        table = tag == "figure" and "ltx_table" in classes and self._table is None and not self._skip
+        self._stack.append((tag, skipping, appendix, table))
         self._skip += skipping
+        if table:
+            self._table = {"rows": [], "caption": [], "appendix": self._in_appendix()}
+        elif self._table is not None:
+            if tag == "tr":
+                self._table["rows"].append([])
+            elif tag in self.CELL_TAGS and self._table["rows"]:
+                self._cell = []
+                self._table["rows"][-1].append(self._cell)
+            elif tag == "figcaption":
+                self._caption = True
+        if tag in self.HEADING_TAGS and not self._skip:
+            self._heading, self._heading_at = [], len(self.parts)
 
     def handle_endtag(self, tag):
         if tag in self.BLOCK_TAGS:
             self.parts.append(self.BREAK)
-        if tag in self.VOID_TAGS or not any(t == tag for t, _ in self._stack):
+        if tag in self.CELL_TAGS:
+            self._cell = None
+        elif tag == "figcaption":
+            self._caption = False
+        if tag in self.HEADING_TAGS and self._heading is not None:
+            heading = _clean("".join(self._heading))
+            self._heading = None
+            if heading:
+                self._section_starts.append((heading, self._heading_at, len(self.parts)))
+                if _APPENDIX_HEADING.match(heading):
+                    self._appendix_after = True
+        if tag in self.VOID_TAGS or not any(t == tag for t, *_ in self._stack):
             return
         while self._stack:  # pop to the matching tag (tolerates unclosed children)
-            t, skipping = self._stack.pop()
+            t, skipping, _, table = self._stack.pop()
             self._skip -= skipping
+            if table:
+                self._finish_table()
             if t == tag:
                 break
 
-    def handle_data(self, data):
-        if not self._skip:
-            self.parts.append(_SPACES.sub(" ", data))  # source newlines are just spaces
+    def _finish_table(self) -> None:
+        tbl, self._table, self._cell, self._caption = self._table, None, None, False
+        if tbl and not tbl["appendix"] and len(self.tables) < MAX_TABLES:
+            rows = [["".join(cell) for cell in row] for row in tbl["rows"]]
+            if summary := compact_table("".join(tbl["caption"]), rows):
+                self.tables.append(summary)
 
-    def text(self) -> str:
-        lines = "".join(self.parts).split(self.BREAK)
+    def handle_data(self, data):
+        if self._skip:
+            return
+        text = _SPACES.sub(" ", data)  # source newlines are just spaces
+        self.parts.append(text)
+        if self._heading is not None:
+            self._heading.append(text)
+        if self._table is not None:
+            if self._caption:
+                self._table["caption"].append(text)
+            elif self._cell is not None:
+                self._cell.append(text)
+
+    @classmethod
+    def _join(cls, parts: list[str]) -> str:
+        lines = "".join(parts).split(cls.BREAK)
         cleaned = (_CELLS.sub(" | ", " ".join(line.split())).strip(" |") for line in lines)
         return "\n".join(line for line in cleaned if line)
+
+    def text(self) -> str:
+        return self._join(self.parts)
+
+    def sections(self) -> list[tuple[str, str]]:
+        """(heading, body) pairs; a body ends where the next heading begins."""
+        ends = [start for _, start, _ in self._section_starts[1:]] + [len(self.parts)]
+        return [(h, self._join(self.parts[body:end])) for (h, _, body), end in zip(self._section_starts, ends)]
+
+
+_PDF_SECTION = re.compile(
+    r"^\s*(?:\d+(?:\.\d+)*\.?|[A-Z]\.)?\s*(limitations?|conclusions?(?: and future work)?|concluding remarks|"
+    r"discussion(?: and conclusions?)?|future work|broader impacts?|societal impacts?)\s*$", re.I)
+_PDF_NEXT_HEADING = re.compile(r"^\s*(?:\d+(?:\.\d+)*\.?|[A-Z]\.)\s+[A-Z][A-Za-z ,&-]{2,60}$|^\s*(references|"
+                               r"acknowledge?ments?|bibliography)\s*$", re.I)
+
+
+def pdf_sections(text: str, max_words: int = 400) -> list[tuple[str, str]]:
+    """Best-effort Limitations/Conclusion/Discussion sections from PDF text (headings on own lines)."""
+    lines, found = text.splitlines(), []
+    for i, line in enumerate(lines):
+        if not _PDF_SECTION.match(line):
+            continue
+        body, words = [], 0
+        for nxt in lines[i + 1:]:
+            if _PDF_NEXT_HEADING.match(nxt) or words >= max_words:
+                break
+            body.append(nxt)
+            words += len(nxt.split())
+        if body:
+            found.append((_clean(line), _clean(" ".join(body))))
+    return found
 
 
 def is_arxiv_html(url: str) -> bool:
     return "arxiv.org/html/" in url
 
 
-def extract_text(data: bytes, ctype: str, url: str = "") -> str:
+def parse_document(data: bytes, ctype: str, url: str = "") -> Document:
     if ctype == "application/pdf" or data[:5] == b"%PDF-":
         from pypdf import PdfReader
 
         reader = PdfReader(io.BytesIO(data))
-        return "\n".join((page.extract_text() or "") for page in reader.pages[:MAX_PAGES])
+        text = "\n".join((page.extract_text() or "") for page in reader.pages[:MAX_PAGES])
+        return Document(text, sections=pdf_sections(text))
     text = data.decode("utf-8", errors="replace")
     if ctype == "text/plain":
-        return text
+        return Document(text, sections=pdf_sections(text))
     if is_arxiv_html(url) and "ltx_document" not in text:
         raise ValueError("no arXiv HTML rendering for this paper")
     parser = _HTMLText()
     parser.feed(text)
     parser.close()
-    return parser.text()
+    return Document(parser.text(), parser.tables, parser.sections())
+
+
+def extract_text(data: bytes, ctype: str, url: str = "") -> str:
+    return parse_document(data, ctype, url).text
 
 
 # ------------------------------------------------------------------ BM25 ----
@@ -267,10 +402,13 @@ def main() -> None:
         try:
             data, ctype = download(url, int(req.get("max_bytes", 25 * 2**20)), float(req.get("timeout", 90)),
                                    bool(req.get("allow_private", False)))
-            text = extract_text(data, ctype, url)[:MAX_TEXT_CHARS]
+            doc = parse_document(data, ctype, url)
+            text = doc.text[:MAX_TEXT_CHARS]
             if len(text) < 500:
                 raise ValueError("no extractable text")
-            out = {"source": url, "passages": search(text, req["queries"], int(req.get("top_k", 4))), "error": None}
+            out = {"source": url, "passages": search(text, req["queries"], int(req.get("top_k", 4))), "error": None,
+                   "tables": doc.tables if req.get("tables") else [],
+                   "sections": doc.limitation_sections() if req.get("sections") else []}
             break
         except Exception as e:  # noqa: BLE001 - report any failure to the parent
             errors.append(f"{url}: {type(e).__name__}: {e}")

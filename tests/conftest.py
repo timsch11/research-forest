@@ -162,6 +162,18 @@ def op(action: str, **kw) -> dict:
 
 
 @pytest.fixture(autouse=True)
+def _offline_fulltext(monkeypatch):
+    """Never let the passage finder start the real worker (it would download from arXiv).
+    Tests of the worker call ``run_worker`` directly or monkeypatch their own fake."""
+    from research_forest.sources import fulltext
+
+    async def offline(urls, queries, settings, top_k=4, **kw):
+        return {"source": None, "passages": {}, "error": "network disabled in tests", "tables": [], "sections": []}
+
+    monkeypatch.setattr(fulltext, "run_worker", offline)
+
+
+@pytest.fixture(autouse=True)
 def _reset_overrides():
     OVERRIDES.clear()
     yield

@@ -14,7 +14,7 @@ from collections import defaultdict
 from dataclasses import dataclass
 
 from ..models import Extraction, GapFill, Grouping, MissingField, Relations
-from ..prompts import SYSTEM, extract_prompt, gapfill_prompt, normalize_prompt, relate_prompt
+from ..prompts import SYSTEM, extract_prompt, gapfill_fields, gapfill_prompt, normalize_prompt, relate_prompt
 from ..safety import looks_like_injection
 from ..store import PaperRecord, entity_key, pid
 from .context import Ctx
@@ -158,12 +158,13 @@ async def extract(ctx: Ctx, recs: list[PaperRecord], deep: bool = False) -> Extr
                                     extract_prompt(r.paper, cites, own.get(r.node, [])[:3 * MAX_OWN_SENTENCES]))
         fields = ALL_FIELDS if deep else gaps(ex, ctx.settings.fulltext_always_fill_datasets)
         if fields and ctx.finder:
-            passages = await ctx.finder.find(r.paper, fields, ex.search_terms, vocabulary)
+            passages = await ctx.finder.find(r.paper, fields, ex.search_terms, vocabulary,
+                                             sections=ctx.settings.fulltext_limitation_sections)
             if any(looks_like_injection(t) for texts in passages.values() for t in texts):
                 ctx.log(f"warning: instruction-like text in full text of {r.paper.title[:80]!r} (treated as data)")
             if passages:
                 fill = await ctx.llm.json(GapFill, SYSTEM, gapfill_prompt(r.paper, ex.contribution, passages))
-                ex = merge_gapfill(ex, fill, list(passages))
+                ex = merge_gapfill(ex, fill, gapfill_fields(passages))
                 gap_filled += 1
         apply_extraction(ctx, r.paper.id, ex)
 
