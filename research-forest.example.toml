@@ -26,9 +26,18 @@ max_mb = 25                   # maximum decompressed download size
 timeout = 90                  # seconds per document
 memory_mb = 1024              # worker memory limit (POSIX)
 allow_private = false         # disables the SSRF guard — local testing only
+prefer_html = true            # try arXiv's HTML rendering before the PDF (cleaner text, readable tables)
+always_fill_datasets = true   # search the full text for datasets for every paper (+1 small LLM call each);
+                              # false = only when fewer than 3 datasets were found
+limitation_sections = true    # when the full text is read, also take limitations from its Limitations /
+                              # Conclusion / Discussion sections
 
 [server]
 max_jobs = 2                  # concurrent build/refine jobs
 
 [storage]
 db_path = "research.forest.db"   # SQLite file holding all landscapes (`--db` overrides)
+
+[logging]
+llm_calls = true                 # record every LLM call: prompts, outputs, word counts, duration
+llm_log_file = "research-forest-llm.jsonl"   # one JSON object per line; `research-forest llm-log` summarises it

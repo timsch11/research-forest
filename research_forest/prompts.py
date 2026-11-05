@@ -124,16 +124,37 @@ def extract_prompt(p: Paper, contexts: list[str], own_sentences: list[str] = ())
     return "\n\n".join(parts)
 
 
+GAPFILL_EXTRAS = {"tables", "limitation_sections"}  # non-field keys of PassageFinder.find() results
+
+
+def gapfill_fields(passages: dict[str, list[str]]) -> list[str]:
+    """Fields a gap-fill call fills: those with passages, plus limitations when sections were found."""
+    fields = [f for f in passages if f not in GAPFILL_EXTRAS]
+    if passages.get("limitation_sections") and "limitations" not in fields:
+        fields.append("limitations")
+    return fields
+
+
 def gapfill_prompt(p: Paper, contribution: str, passages: dict[str, list[str]]) -> str:
-    """Fill only the missing fields from passages: the abstract and contexts are not re-sent."""
-    fields = ", ".join(sanitize(f, 20) for f in passages)
-    parts = [f"An earlier pass extracted this paper from its abstract but found too little about: {fields}. "
-             "Using ONLY the full-text passages below, list the items for those fields (methods_used = existing "
-             "methods it builds on or compares against). Leave every other field empty.",
+    """Fill only the requested fields from full-text evidence: the abstract and contexts are not re-sent."""
+    fields = ", ".join(sanitize(f, 20) for f in gapfill_fields(passages))
+    parts = [f"An earlier pass extracted this paper from its abstract. Using ONLY the full-text material below, "
+             f"list the items for these fields: {fields}. Leave every other field empty. methods_used = existing "
+             "methods it builds on or compares against. datasets = evaluation benchmarks AND training or "
+             "pre-training corpora (usage: training/evaluation/both); table columns and row labels often name "
+             "them. limitations = weaknesses the authors state (source: stated), mainly from their limitations, "
+             "conclusion and discussion sections; future work separately.",
              data_block("paper", [f"Title: {clip(p.title, 300)}", f"Contribution: {clip(contribution, 400)}"])]
+    if tables := passages.get("tables"):
+        parts.append(data_block("table captions, column headers and row labels from the main paper",
+                                (f"- {t}" for t in _unique(tables, 15, 600))))
+    if sections := passages.get("limitation_sections"):
+        parts.append(data_block("the paper's limitations, conclusion and discussion sections",
+                                (f"- {t}" for t in _unique(sections, 3, 1800))))
     for field, texts in passages.items():
-        parts.append(data_block(f"full-text passages likely relevant to {sanitize(field, 20)}",
-                                (f"- {t}" for t in _unique(texts, 6, 1200))))
+        if field not in GAPFILL_EXTRAS:
+            parts.append(data_block(f"full-text passages likely relevant to {sanitize(field, 20)}",
+                                    (f"- {t}" for t in _unique(texts, 8, 1200))))
     return "\n\n".join(parts)
 
 

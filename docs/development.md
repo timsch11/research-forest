@@ -57,7 +57,10 @@ research_forest/
 ## Evaluating extraction quality
 
 `eval/gold.json` holds 17 well-known papers (Transformer, BERT, ResNet, Mamba, FlashAttention,
-…), each with the datasets it uses (with accepted aliases) and the method it proposes.
+…). Each comes with the datasets it uses (with accepted aliases) and the method it proposes.
+13 of them also list limitations the paper itself states (22 in total). Limitations are free
+text, so an LLM judge, using your configured backend, decides which gold limitations each
+extraction covers.
 
 ```bash
 research-forest evaluate --out before.json          # uses your config: backend, model, …
@@ -72,6 +75,8 @@ then analysed exactly as in a build, in a throwaway database. The report shows:
 - **proposed method found:** whether the paper's own method was extracted;
 - **papers with limitations:** how many got at least one limitation;
 - **gap filling:** how many papers needed full-text passages;
+- **limitation recall:** judged by the LLM, plus the share of extracted limitations the authors
+  state themselves, and limitations per paper;
 - per paper, which gold datasets were missed.
 
 A run makes about 50 Semantic Scholar requests and 20–40 LLM calls. Add papers to the gold
@@ -80,6 +85,17 @@ set to cover your own field.
 For reference, with Claude Haiku through the `claude-code` backend and no Semantic Scholar key,
 the evidence and ranking changes raised dataset recall from 56% to 73% and precision from 85%
 to 90%.
+
+### Comparing full-text sources
+
+```bash
+research-forest evaluate --sources
+```
+
+This runs the dataset passage search on each gold paper's arXiv HTML and on its PDF, then
+counts the gold datasets named in the top six passages. No LLM is involved, so the result is
+deterministic and costs nothing but downloads. On the shipped gold set, HTML scores 82% and
+PDF 73%, and HTML is about twice as fast to process.
 
 ## Extending
 

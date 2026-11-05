@@ -123,6 +123,12 @@ class FakeBackend(Backend):
         return {"methods_used": ["Transformer"], "datasets": [{"name": "PG-19", "usage": "evaluation"}],
                 "limitations": [{"text": "Relies on custom CUDA kernels", "source": "stated"}], "future_work": []}
 
+    def _limitationjudgement(self, user, refs):
+        # covers gold limitation [i] when an extracted line shares its first word (deterministic stand-in)
+        gold = dict(re.findall(r"^\[(\d+)\] (\S+)", user, re.M))
+        extracted = user.split('source="extracted limitations"')[1].lower()
+        return {"covered": [int(i) for i, word in gold.items() if word.lower() in extracted]}
+
     def _relations(self, user, refs):
         return {"relations": [{"ref": r, "builds_on": True, "change_type": "efficiency",
                                "component": "attention", "summary": "Makes it faster"} for r in refs]}
@@ -162,6 +168,18 @@ def op(action: str, **kw) -> dict:
 
 
 @pytest.fixture(autouse=True)
+def _offline_fulltext(monkeypatch):
+    """Never let the passage finder start the real worker (it would download from arXiv).
+    Tests of the worker call ``run_worker`` directly or monkeypatch their own fake."""
+    from research_forest.sources import fulltext
+
+    async def offline(urls, queries, settings, top_k=4, **kw):
+        return {"source": None, "passages": {}, "error": "network disabled in tests", "tables": [], "sections": []}
+
+    monkeypatch.setattr(fulltext, "run_worker", offline)
+
+
+@pytest.fixture(autouse=True)
 def _reset_overrides():
     OVERRIDES.clear()
     yield
@@ -175,8 +193,12 @@ def fake_backend():
 
 @pytest.fixture
 def settings(tmp_path):
+    # prefer_html=False keeps pipeline tests offline: passages come from the mocked snippet API, never a
+    # real arXiv download (the HTML path has its own unit tests in test_fulltext.py).
+    # always_fill_datasets=False keeps gap filling to the cases the tests set up explicitly.
     return Settings(db_path=str(tmp_path / "test.forest.db"), target_papers=7, s2_rps=0,
-                    fulltext_enabled=True, cache_llm=False)
+                    fulltext_enabled=True, fulltext_prefer_html=False, fulltext_always_fill_datasets=False,
+                    cache_llm=False)
 
 
 def make_forest(settings, backend, handler=s2_handler, logs: list | None = None) -> Forest:

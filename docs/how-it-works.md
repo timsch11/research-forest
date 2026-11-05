@@ -44,10 +44,12 @@ flowchart LR
      GLUE [12]") are the best evidence for datasets.
    - **Sentences from other papers** that describe this one. These are a rich source of
      limitations.
-6. **Gap filling.** If the extraction reports missing fields, *or returns an empty list of
-   datasets, limitations or methods*, research-forest looks for
-   passages without reading the whole paper (see [below](#gap-filling)). A small follow-up call
-   then fills *only* those fields from the passages, and the results are merged in.
+6. **Gap filling.** Abstracts usually name only headline benchmarks, so by default the full
+   text is searched for datasets for every paper (`always_fill_datasets`). This lifted dataset
+   recall on the gold set from 68% to 82%. Limitations and methods are gap-filled when the model
+   flags them as missing or returns them empty. Passages come from the paper's text (see
+   [below](#gap-filling)). A small follow-up call fills *only* those fields from the passages,
+   and the results are merged in.
 7. **Lineage.** Each citation between two graph papers is judged once: does the citing paper
    *build on* the cited one? If so, the edge gets a change type, the component that changed and
    a one-sentence summary. Pairs are batched (up to 15 per call) around a shared anchor paper.
@@ -106,9 +108,28 @@ in order:
 
 1. **Semantic Scholar snippet search.** Full-text snippets from S2's index, queried per missing
    field. Extra search terms suggested by the LLM are added to each query.
-2. **Local BM25 search.** If S2 has no snippets, the open-access PDF or HTML (or the arXiv PDF)
-   is downloaded in a [sandboxed worker](security.md#sandboxed-full-text-processing). The worker
-   splits the text into overlapping windows of 120 words and ranks them with BM25, a standard
+2. **Local BM25 search.** If S2 has no snippets, the paper's text is downloaded in a
+   [sandboxed worker](security.md#sandboxed-full-text-processing), trying sources in order:
+   - **arXiv's HTML rendering** (`arxiv.org/html/<id>`), which also exists for most older papers.
+     Its tables come through as rows ("BigBird | 75.7 | 86.8"), and the bibliography, author
+     blocks and math markup are dropped. That matters because datasets are usually named in
+     tables and captions, which PDF text extraction scrambles.
+   - the open-access PDF;
+   - the arXiv PDF.
+
+   Besides keyword-ranked passages, reading the document yields two structured inputs:
+   - **Table summaries:** for datasets, each main-body table's caption, column headers and row
+     labels, e.g. "Table 2: Dev results… — columns: Model | SST-2 | IMDB | QNLI | QQP". Appendix
+     and supplementary tables are skipped. This is HTML only.
+   - **Limitation sections:** the Limitations, Conclusion, Discussion and Future-work sections
+     (`limitation_sections`). They fill limitations whenever the document is read. For PDFs
+     they're found with a heading heuristic.
+
+   Dataset passages come from two queries: one for evaluation benchmarks and one for training
+   and pre-training corpora, which sit in setup sections rather than results.
+
+   Pages without an HTML rendering fall through to the next source. The worker splits the
+   text into overlapping windows of 120 words and ranks them with BM25, a standard
    keyword-ranking algorithm.
 
 Both searches add the dataset and method names already used most in the graph to their

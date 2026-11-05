@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from ..config import Settings
 from .base import LLM, Backend, JsonCache, TransientLLMError, strict_schema
+from .calllog import CallLog
 
 
 def make_backend(settings: Settings) -> Backend:
@@ -21,8 +22,9 @@ def make_backend(settings: Settings) -> Backend:
 
 def make_llm(settings: Settings, backend: Backend | None = None) -> LLM:
     cache = JsonCache(settings.db_path + ".llmcache") if settings.cache_llm else None
+    call_log = CallLog(settings.llm_log_file) if settings.llm_log_enabled else None
     return LLM(backend or make_backend(settings), concurrency=settings.llm_concurrency,
-               retries=settings.llm_retries, cache=cache)
+               retries=settings.llm_retries, cache=cache, call_log=call_log)
 
 
-__all__ = ["LLM", "Backend", "JsonCache", "TransientLLMError", "make_backend", "make_llm", "strict_schema"]
+__all__ = ["CallLog", "LLM", "Backend", "JsonCache", "TransientLLMError", "make_backend", "make_llm", "strict_schema"]

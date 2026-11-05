@@ -220,6 +220,8 @@ __marimo__/
 .streamlit/secrets.toml
 
 # research-forest
+research-forest-llm.jsonl
+*.llm.jsonl
 *.forest.db
 *.forest.db-*
 .rf-cache/

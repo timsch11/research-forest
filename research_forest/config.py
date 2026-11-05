@@ -45,8 +45,13 @@ CONFIG_KEYS: dict[tuple[str, str], tuple[str, type]] = {
     ("fulltext", "timeout"): ("fulltext_timeout", float),
     ("fulltext", "memory_mb"): ("fulltext_mem_mb", int),
     ("fulltext", "allow_private"): ("fulltext_allow_private", bool),
+    ("fulltext", "prefer_html"): ("fulltext_prefer_html", bool),
+    ("fulltext", "always_fill_datasets"): ("fulltext_always_fill_datasets", bool),
+    ("fulltext", "limitation_sections"): ("fulltext_limitation_sections", bool),
     ("server", "max_jobs"): ("max_jobs", int),
     ("storage", "db_path"): ("db_path", str),
+    ("logging", "llm_calls"): ("llm_log_enabled", bool),
+    ("logging", "llm_log_file"): ("llm_log_file", str),
 }
 
 
@@ -129,12 +134,19 @@ class Settings:
     fulltext_timeout: float = 90.0
     fulltext_mem_mb: int = 1024
     fulltext_allow_private: bool = False  # SSRF guard; only disable for local testing
+    fulltext_prefer_html: bool = True  # try arXiv's HTML rendering before PDFs (cleaner text and tables)
+    fulltext_always_fill_datasets: bool = True  # gap-fill datasets for every paper, not only thin results
+    fulltext_limitation_sections: bool = True  # read Limitations/Conclusion/Discussion sections when gap filling
 
     # --- web server ---
     api_token: str | None = None  # secret; generated at startup when unset
     max_jobs: int = 2  # concurrent build/refine jobs across all projects
 
     db_path: str = "research.forest.db"
+
+    # --- logging ---
+    llm_log_enabled: bool = True  # record every LLM call (input, output, sizes) as JSON lines
+    llm_log_file: str = "research-forest-llm.jsonl"
 
     @classmethod
     def load(cls, config: str | Path | None = None, env_file: str | Path = ".env", **overrides: Any) -> "Settings":

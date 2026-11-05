@@ -73,6 +73,10 @@ def main(argv: list[str] | None = None) -> None:
     ev.add_argument("--limit", type=int, default=None, help="only the first N gold papers")
     ev.add_argument("--out", default=None, help="write the full JSON report here")
     ev.add_argument("--compare", default=None, help="a previous JSON report to show deltas against")
+    ev.add_argument("--sources", action="store_true",
+                    help="compare full-text sources (arXiv HTML vs PDF) by passage recall, without an LLM")
+    lg = sub.add_parser("llm-log", help="summarise the LLM call log (calls, words in/out, time per call type)")
+    lg.add_argument("file", nargs="?", default=None, help="log file (default: [logging] llm_log_file)")
     sv = sub.add_parser("serve", help="run the web explorer")
     sv.add_argument("--host", default="127.0.0.1")
     sv.add_argument("--port", type=int, default=8000)
@@ -94,6 +98,21 @@ def main(argv: list[str] | None = None) -> None:
         uvicorn.run(app, host=args.host, port=args.port, log_level="warning")
         return
 
+    if args.cmd == "llm-log":
+        from .llm.calllog import summarize
+        path = Path(args.file or _settings(args).llm_log_file)
+        if not path.is_file():
+            raise SystemExit(f"research-forest: no LLM call log at {path} (is [logging] llm_calls enabled?)")
+        print(summarize(path))
+        return
+    if args.cmd == "evaluate" and args.sources:
+        from .evaluation import evaluate_sources, format_sources_report
+        report = asyncio.run(evaluate_sources(_settings(args), Path(args.gold), args.limit,
+                                              on_log=lambda m: print(m, file=sys.stderr)))
+        if args.out:
+            Path(args.out).write_text(json.dumps(report, indent=2), encoding="utf-8")
+        print(format_sources_report(report))
+        return
     if args.cmd == "evaluate":
         from .evaluation import evaluate, format_report, load_report
         report = asyncio.run(evaluate(_settings(args), Path(args.gold), args.limit,

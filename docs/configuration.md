@@ -58,6 +58,9 @@ All settings are optional.
 | `timeout` | `90` | Seconds per document |
 | `memory_mb` | `1024` | Worker memory limit (POSIX) |
 | `allow_private` | `false` | Disables the SSRF guard. **Local testing only.** |
+| `prefer_html` | `true` | Try arXiv's HTML rendering before PDFs (cleaner text, readable tables) |
+| `limitation_sections` | `true` | When the full text is read, also take limitations from its Limitations, Conclusion, Discussion and Future-work sections |
+| `always_fill_datasets` | `true` | Search the full text for datasets for every paper (+1 small LLM call each). `false` does this only when fewer than 3 datasets were found |
 
 ### `[server]` and `[storage]`
 
@@ -65,6 +68,15 @@ All settings are optional.
 |---|---|---|
 | `server.max_jobs` | `2` | Concurrent build and refine jobs |
 | `storage.db_path` | `"research.forest.db"` | SQLite file holding all landscapes (`--db` overrides) |
+
+### `[logging]`
+
+| Key | Default | Description |
+|---|---|---|
+| `llm_calls` | `true` | Record every LLM call as one JSON line: backend, model, call type, attempt, cache hit, duration, the full system and user prompt, the output or error, and word and character counts |
+| `llm_log_file` | `"research-forest-llm.jsonl"` | Where to write it (git-ignored). `research-forest llm-log` summarises it |
+
+Sizes are logged in words and characters; tokens ≈ 1.3 × words.
 
 ## Secrets (`.env` or environment)
 
