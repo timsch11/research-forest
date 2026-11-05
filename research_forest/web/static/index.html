@@ -55,6 +55,15 @@
 
   <section class="canvas-wrap">
     <div id="cy"></div>
+    <div id="progress" class="progress hidden" role="status" aria-live="polite">
+      <div class="progress-head">
+        <strong id="progress-title"></strong>
+        <span id="progress-time" class="muted"></span>
+      </div>
+      <ol id="progress-steps" class="steps"></ol>
+      <div class="bar" aria-hidden="true"><div id="progress-fill"></div></div>
+      <div class="progress-meta"><span id="progress-label"></span><span id="progress-count"></span></div>
+    </div>
     <div id="empty" class="empty hidden">No papers yet — the graph appears once the build has progressed.</div>
   </section>
 

@@ -66,8 +66,18 @@ async def extract(ctx: Ctx, recs: list[PaperRecord], deep: bool = False) -> int:
     findings for every field.
     """
     contexts = incoming_contexts(ctx)
+    ctx.work(len(recs), (f"Re-analysing {len(recs)} papers with full-text passages" if deep else
+                         f"Extracting methods, datasets and limitations from {len(recs)} papers"))
+    gap_filled = 0
 
     async def one(r: PaperRecord) -> None:
+        try:
+            await analyse(r)
+        finally:
+            ctx.tick()
+
+    async def analyse(r: PaperRecord) -> None:
+        nonlocal gap_filled
         cites = contexts.get(r.node, [])
         if deep and r.extraction is not None:
             ex = r.extraction
@@ -83,13 +93,15 @@ async def extract(ctx: Ctx, recs: list[PaperRecord], deep: bool = False) -> int:
             if passages:
                 fill = await ctx.llm.json(GapFill, SYSTEM, gapfill_prompt(r.paper, ex.contribution, passages))
                 ex = merge_gapfill(ex, fill, list(passages))
+                gap_filled += 1
         apply_extraction(ctx, r.paper.id, ex)
 
     results = await asyncio.gather(*(one(r) for r in recs), return_exceptions=True)
     failed = [(r, e) for r, e in zip(recs, results) if isinstance(e, BaseException)]
     for r, e in failed:
-        ctx.log(f"extraction failed for {r.paper.title!r}: {e}")
-    ctx.log(f"analysed {len(recs) - len(failed)} papers")
+        ctx.log(f"Could not analyse {r.paper.title[:80]!r}: {e}")
+    ctx.log(f"Analysed {len(recs) - len(failed)}/{len(recs)} papers"
+            + (f"; {gap_filled} were completed from full-text passages" if gap_filled else ""))
     return len(recs) - len(failed)
 
 
@@ -175,6 +187,12 @@ async def relate(ctx: Ctx) -> int:
         skipped += edges[cap:]
 
     async def one(anchor_id: str, anchor_is_citing: bool, batch: list[dict]) -> int:
+        try:
+            return await judge(anchor_id, anchor_is_citing, batch)
+        finally:
+            ctx.tick()
+
+    async def judge(anchor_id: str, anchor_is_citing: bool, batch: list[dict]) -> int:
         other = (lambda e: included[e["dst"][2:]]) if anchor_is_citing else (lambda e: included[e["src"][2:]])
         others = [(other(e).paper, _contribution(other(e)), e["data"]) for e in batch]
         anchor = included[anchor_id]
@@ -191,14 +209,17 @@ async def relate(ctx: Ctx) -> int:
         return len(new)
 
     prompts = plan_relation_prompts(pairs, cap)
+    ctx.work(len(prompts), f"Judging {len(pairs)} citations between graph papers ({len(prompts)} LLM calls)")
     results = await asyncio.gather(*(one(*p) for p in prompts), return_exceptions=True)
     ctx.store.add_edges(ctx.project, [(e["src"], e["dst"], "cites", {**e["data"], "judged": True}) for e in skipped])
     for r in results:
         if isinstance(r, BaseException):
-            ctx.log(f"relation analysis failed: {r}")
+            ctx.log(f"A lineage batch failed and was skipped: {r}")
     total = sum(r for r in results if isinstance(r, int))
     if pairs:
-        ctx.log(f"found {total} builds-on relations among {len(pairs)} citations ({len(prompts)} prompts)")
+        ctx.log(f"Found {total} builds-on relations among {len(pairs)} citations")
+    else:
+        ctx.log("No new citations between graph papers to judge")
     return total
 
 
@@ -258,13 +279,21 @@ async def normalize(ctx: Ctx) -> None:
             merged += len(members) - 1
         return merged
 
-    results = await asyncio.gather(one("method"), one("dataset"), return_exceptions=True)
+    ctx.work(2, "Merging duplicate method and dataset names")
+
+    async def ticked(kind: str) -> int:
+        try:
+            return await one(kind)
+        finally:
+            ctx.tick()
+
+    results = await asyncio.gather(ticked("method"), ticked("dataset"), return_exceptions=True)
     failed = False
     for kind, r in zip(("method", "dataset"), results):
         if isinstance(r, BaseException):
             failed = True
-            ctx.log(f"{kind} normalisation failed: {r}")
-        elif r:
-            ctx.log(f"merged {r} duplicate {kind} entities")
+            ctx.log(f"Merging duplicate {kind}s failed: {r}")
+        else:
+            ctx.log(f"Merged {r} duplicate {kind} names" if r else f"No duplicate {kind} names found")
     if not failed:
         ctx.store.set_meta(ctx.project, NORMALIZED_UPTO, high)

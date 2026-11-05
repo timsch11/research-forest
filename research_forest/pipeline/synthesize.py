@@ -13,6 +13,7 @@ async def synthesize(ctx: Ctx) -> None:
     if not recs:
         return
     recs.sort(key=lambda r: (r.paper.year or 0, r.paper.title))
+    ctx.work(1, f"Clustering limitations of {len(recs)} papers into themes and open questions")
     rows = [(r.paper, [l.text for l in r.extraction.limitations][:4], r.extraction.future_work[:2]) for r in recs]
     syn = await ctx.llm.json(Synthesis, SYSTEM, synthesize_prompt(ctx.store.scope(ctx.project), rows))
 
@@ -32,4 +33,5 @@ async def synthesize(ctx: Ctx) -> None:
         edges += [(themes[i], node, "motivates", None) for i in dict.fromkeys(q.themes) if 0 <= i < len(themes)]
         edges += [(node, p, "about", None) for p in paper_nodes(q.papers)]
     store.add_edges(project, edges)
-    ctx.log(f"synthesised {len(syn.themes)} limitation themes and {len(syn.questions)} open questions")
+    ctx.tick()
+    ctx.log(f"Synthesised {len(syn.themes)} limitation themes and {len(syn.questions)} open questions")

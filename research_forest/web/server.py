@@ -54,10 +54,19 @@ class Jobs:
     def __init__(self, limit: int = 2) -> None:
         self.logs: dict[int, deque] = defaultdict(lambda: deque(maxlen=300))
         self.tasks: dict[int, asyncio.Task] = {}
+        self.progress: dict[int, dict] = {}
         self.limit = limit
 
     def log(self, project: int, msg: str) -> None:
         self.logs[project].append({"t": time.time(), "msg": msg})
+
+    def report(self, project: int, event: dict) -> None:
+        """Merge a progress event: {"job", "plan"} starts a job; {"stage", "label", "done", "total"} updates it."""
+        if "plan" in event:
+            self.progress[project] = {**event, "started": time.time(), "stage": None, "label": "", "done": 0,
+                                      "total": 0, "finished": None, "error": None}
+        elif project in self.progress:
+            self.progress[project].update(event)
 
     def running(self, project: int) -> bool:
         return project in self.tasks and not self.tasks[project].done()
@@ -74,10 +83,17 @@ class Jobs:
         async def wrapper():
             try:
                 await job()
+                if project in self.progress and self.logs[project]:  # show the run summary on completion
+                    self.progress[project].update(label=self.logs[project][-1]["msg"], done=0, total=0)
                 self.log(project, "done")
             except Exception as e:  # surfaced through the progress log
                 log.exception("job failed")
                 self.log(project, f"error: {type(e).__name__}: {str(e)[:300]}")
+                if project in self.progress:
+                    self.progress[project]["error"] = f"{type(e).__name__}: {str(e)[:300]}"
+            finally:
+                if project in self.progress:
+                    self.progress[project]["finished"] = time.time()
 
         self.tasks[project] = asyncio.create_task(wrapper())
 
@@ -111,6 +127,7 @@ def create_app(settings: Settings, forest: Forest | None = None, token: str | No
     token = token or settings.api_token or secrets.token_urlsafe(24)
     jobs = Jobs(settings.max_jobs)
     forest = forest or Forest(settings)
+    forest.on_progress = jobs.report
     if (previous := forest.on_log) is None:
         forest.on_log = jobs.log
     else:  # keep the caller's logger and also feed the UI's progress log
@@ -180,7 +197,7 @@ def create_app(settings: Settings, forest: Forest | None = None, token: str | No
     async def project(pid: int, since: float = 0.0):
         p = project_or_404(pid)
         return {**p, "running": jobs.running(pid), "log": [l for l in jobs.logs[pid] if l["t"] > since],
-                "snapshots": store.snapshots(pid)}
+                "snapshots": store.snapshots(pid), "progress": jobs.progress.get(pid)}
 
     @app.get("/api/projects/{pid}/graph")
     async def graph(pid: int):

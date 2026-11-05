@@ -60,6 +60,29 @@ def test_web_flow(client, built):
     assert client.get("/api/projects/999").status_code == 404
 
 
+def test_progress_is_exposed(client, built):
+    p = client.get(f"/api/projects/{built}").json()["progress"]
+    assert p["job"] == "build" and p["finished"] and p["error"] is None
+    assert [s["key"] for s in p["plan"]][0] == "scope" and p["stage"] == "synthesize"
+    assert p["label"].startswith("Done in ")
+
+
+async def test_job_progress_lifecycle():
+    jobs = Jobs()
+    jobs.report(1, {"stage": "x"})  # ignored before a plan exists
+    assert 1 not in jobs.progress
+    jobs.report(1, {"job": "build", "plan": [{"key": "a", "label": "A"}]})
+    jobs.report(1, {"stage": "a", "label": "Doing A", "done": 1, "total": 2})
+
+    async def boom():
+        raise ValueError("bad")
+
+    jobs.start(1, boom)
+    await asyncio.sleep(0.01)
+    p = jobs.progress[1]
+    assert (p["stage"], p["done"], p["total"]) == ("a", 1, 2) and p["finished"] and p["error"] == "ValueError: bad"
+
+
 def test_log_since_filters(client, built):
     full = client.get(f"/api/projects/{built}").json()["log"]
     later = client.get(f"/api/projects/{built}", params={"since": full[-2]["t"]}).json()["log"]

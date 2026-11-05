@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import math
 import re
+import time
 from collections import Counter, defaultdict
 from typing import Callable
 
@@ -20,19 +21,43 @@ from .store import Store
 
 CORE_FRACTION = 0.6  # share of the paper budget filled from search before snowballing
 
+# Ordered stages of each job, shown as a stepper in the UI. process() covers the shared tail.
+PROCESS_STAGES = [("links", "Citations"), ("extract", "Analysis"), ("lineage", "Lineage"),
+                  ("normalize", "Duplicates"), ("synthesize", "Open questions")]
+JOB_STAGES = {
+    "build": [("scope", "Scope"), ("search", "Search"), ("screen", "Screening"), ("snowball", "Snowball"),
+              *PROCESS_STAGES],
+    "refine": [("plan", "Plan"), ("apply", "Apply"), *PROCESS_STAGES],
+}
+
 
 class Forest:
     def __init__(self, settings: Settings, *, store: Store | None = None, llm: LLM | None = None,
-                 s2: SemanticScholar | None = None, on_log: Callable[[int, str], None] | None = None):
+                 s2: SemanticScholar | None = None, on_log: Callable[[int, str], None] | None = None,
+                 on_progress: Callable[[int, dict], None] | None = None):
         self.settings = settings
         self.store = store or Store(settings.db_path)
         self.llm = llm or make_llm(settings)
         self.s2 = s2 or SemanticScholar(settings.s2_api_key, settings.s2_rps)
         self.finder = PassageFinder(self.s2, settings) if settings.fulltext_enabled else None
         self.on_log = on_log
+        self.on_progress = on_progress
 
     def ctx(self, project: int) -> Ctx:
-        return Ctx(self.store, self.llm, self.s2, self.finder, self.settings, project, self.on_log)
+        return Ctx(self.store, self.llm, self.s2, self.finder, self.settings, project, self.on_log, self.on_progress)
+
+    def _begin(self, project: int, job: str) -> None:
+        if self.on_progress:
+            self.on_progress(project, {"job": job, "plan": [{"key": k, "label": l} for k, l in JOB_STAGES[job]]})
+
+    def _summary(self, project: int, started: float) -> str:
+        g = self.store.graph(project)
+        kinds = Counter(n["kind"] for n in g["nodes"])
+        builds = sum(e["kind"] == "builds_on" for e in g["edges"])
+        mins, secs = divmod(int(time.monotonic() - started), 60)
+        return (f"Done in {mins}m{secs:02d}s: {kinds['paper']} papers, {builds} builds-on edges, "
+                f"{kinds['method']} methods, {kinds['dataset']} datasets, {kinds['limitation']} limitation themes, "
+                f"{kinds['question']} open questions")
 
     async def aclose(self) -> None:
         await self.llm.aclose()
@@ -43,21 +68,29 @@ class Forest:
     async def build(self, prompt: str, target: int | None = None, project: int | None = None) -> int:
         project = project or self.store.create_project(prompt)
         ctx, target = self.ctx(project), target or self.settings.target_papers
+        started = time.monotonic()
         self.store.set_status(project, "building")
+        self._begin(project, "build")
         try:
-            ctx.log("defining scope")
+            ctx.stage("scope", "Defining the scope of the research area")
+            ctx.work(1)
             scope = await discover.make_scope(ctx, prompt)
+            ctx.tick()
             self.store.set_scope(project, scope)
-            ctx.log(f"scope: {scope.title} — queries: {', '.join(scope.search_queries)}")
+            ctx.log(f"Scope: {scope.title}. Queries: {'; '.join(scope.search_queries)}"
+                    + (f". Landmark papers: {'; '.join(scope.seed_papers)}" if scope.seed_papers else ""))
 
+            ctx.stage("search", "Searching Semantic Scholar")
             hits = await discover.search(ctx, scope.search_queries, scope.seed_papers, year_min=scope.year_min)
+            ctx.stage("screen", f"Screening search results for relevance (target: {target} papers)")
             await discover.screen(ctx, hits)
             discover.select(ctx, math.ceil(target * CORE_FRACTION))
             await self._fetch_new_links(ctx)
-            ctx.log("snowballing through references")
+            ctx.stage("snowball", "Snowballing: adding frequently co-cited references")
             await discover.snowball(ctx, target - len(self.store.papers(project, "included")))
             discover.select(ctx, target - len(self.store.papers(project, "included")))  # top up if snowball was thin
             await self.process(project, synthesize=True)
+            ctx.log(self._summary(project, started))
             self.store.set_status(project, "ready")
         except BaseException:
             self.store.set_status(project, "error")
@@ -67,25 +100,26 @@ class Forest:
     async def _fetch_new_links(self, ctx: Ctx) -> None:
         todo = [r.paper.id for r in self.store.papers(ctx.project, "included") if not r.refs_fetched]
         if todo:
-            ctx.log(f"fetching citation links for {len(todo)} papers")
             await discover.refresh_metadata(ctx, todo)
             await discover.fetch_links(ctx, todo, "references")
 
     async def process(self, project: int, synthesize: bool = False) -> None:
         """Bring derived data up to date for the current paper set (only new work is done)."""
         ctx = self.ctx(project)
+        ctx.stage("links", "Fetching citations and citation contexts")
         await self._fetch_new_links(ctx)
         todo = [r for r in self.store.papers(project, "included") if r.extraction is None]
         if todo:
-            ctx.log(f"analysing {len(todo)} papers")
+            ctx.stage("extract", f"Analysing {len(todo)} papers")
             await analyze.extract(ctx, todo)
-        ctx.log("tracing lineage (builds-on relations)")
+        ctx.stage("lineage", "Tracing lineage: which papers build on which")
         await analyze.relate(ctx)
         if todo:
+            ctx.stage("normalize", "Merging duplicate methods and datasets")
             await analyze.normalize(ctx)
         self.store.prune_orphans(project)
         if synthesize or todo:
-            ctx.log("synthesising limitations and open questions")
+            ctx.stage("synthesize", "Synthesising limitation themes and open questions")
             await run_synthesis(ctx)
         self.store.reindex(project)
 
@@ -113,16 +147,24 @@ class Forest:
     async def refine(self, project: int, command: str) -> RefinePlan:
         """Apply a natural-language refinement command. A snapshot is taken first (see :meth:`undo`)."""
         ctx = self.ctx(project)
+        started = time.monotonic()
+        self._begin(project, "refine")
+        ctx.stage("plan", f"Planning: {clip(command, 120)}")
+        ctx.work(1)
         plan, papers = await self.plan(project, command)
-        ctx.log(f"plan: {plan.explanation}")
+        ctx.tick()
+        ops = ", ".join(op.action for op in plan.ops) or "none"
+        ctx.log(f"Plan ({ops}): {plan.explanation}")
         self.store.snapshot(project, command)
         self.store.set_status(project, "refining")
         try:
+            ctx.stage("apply", f"Applying {len(plan.ops)} operation(s)")
             before = {p.id for p in papers}
             forced = False
             for op in plan.ops:
                 ids = list(dict.fromkeys(papers[i].id for i in op.papers if 0 <= i < len(papers)))
-                ctx.log(f"op {op.action}" + (f": {op.query}" if op.query else ""))
+                ctx.log(f"Operation {op.action}" + (f": {op.query}" if op.query else "")
+                        + (f" on {len(ids)} paper(s)" if ids else ""))
                 forced |= await self._apply(ctx, op, ids)
             after = {r.paper.id for r in self.store.papers(project, "included")}
             removed = len(before - after)
@@ -130,6 +172,7 @@ class Forest:
                 ctx.log(f"warning: this refinement removed {removed} of {len(before)} papers — use undo if unintended")
             # Synthesis is one of the largest prompts: skip it when the refinement changed nothing.
             await self.process(project, synthesize=forced or after != before)
+            ctx.log(self._summary(project, started))
             self.store.set_status(project, "ready")
         except BaseException:
             self.store.set_status(project, "error")

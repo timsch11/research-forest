@@ -30,8 +30,17 @@ async def search(ctx: Ctx, queries: list[str], seeds: Iterable[str] = (), per_qu
                  year_min: int | None = None) -> list[str]:
     """Run keyword queries and title matches; store hits as candidates and return all hit ids."""
     seeds = list(seeds)
-    results = await asyncio.gather(*(ctx.s2.search(q, per_query, year_min) for q in queries),
-                                   *(ctx.s2.match_title(t) for t in seeds), return_exceptions=True)
+    ctx.work(len(queries) + len(seeds), f"Searching Semantic Scholar: {len(queries)} queries"
+             + (f" and {len(seeds)} landmark titles" if seeds else ""))
+
+    async def ticked(coro):
+        try:
+            return await coro
+        finally:
+            ctx.tick()
+
+    results = await asyncio.gather(*(ticked(ctx.s2.search(q, per_query, year_min)) for q in queries),
+                                   *(ticked(ctx.s2.match_title(t)) for t in seeds), return_exceptions=True)
     papers, seed_ids = [], []
     for i, res in enumerate(results):
         if isinstance(res, BaseException):
@@ -43,7 +52,9 @@ async def search(ctx: Ctx, queries: list[str], seeds: Iterable[str] = (), per_qu
             seed_ids.append(res.id)
     new = ctx.store.add_papers(ctx.project, papers)
     ctx.store.set_relevance(ctx.project, {i: 3 for i in seed_ids if i in new})  # LLM-named landmark papers
-    ctx.log(f"search: {len(papers)} hits, {len(new)} new candidates")
+    unique = len({p.id for p in papers})
+    ctx.log(f"Search found {unique} papers ({len(new)} new); matched {len(seed_ids)}/{len(seeds)} landmark titles"
+            if seeds else f"Search found {unique} papers ({len(new)} new)")
     return list(dict.fromkeys(p.id for p in papers))
 
 
@@ -56,24 +67,31 @@ async def screen(ctx: Ctx, ids: Iterable[str] | None = None, force: bool = False
     if not recs:
         return
     scope = ctx.store.scope(ctx.project)
+    batches = chunks(recs, SCREEN_BATCH)
+    ctx.work(len(recs), f"Rating relevance of {len(recs)} candidates ({len(batches)} LLM batches)")
 
     async def run(batch):
-        res = await ctx.llm.json(Screening, SYSTEM, screen_prompt(scope, [r.paper for r in batch]))
+        try:
+            res = await ctx.llm.json(Screening, SYSTEM, screen_prompt(scope, [r.paper for r in batch]))
+        finally:
+            ctx.tick(len(batch))
         scores = {r.paper.id: 0 for r in batch}
         for item in res.items:
             if 0 <= item.ref < len(batch):
                 scores[batch[item.ref].paper.id] = max(0, min(3, item.relevance))
         return scores
 
-    results = await asyncio.gather(*(run(b) for b in chunks(recs, SCREEN_BATCH)), return_exceptions=True)
+    results = await asyncio.gather(*(run(b) for b in batches), return_exceptions=True)
     scores: dict[str, int] = {}
     for res in results:
         if isinstance(res, BaseException):
-            ctx.log(f"screening batch failed: {res}")
+            ctx.log(f"A screening batch failed and was skipped: {res}")
         else:
             scores.update(res)
     ctx.store.set_relevance(ctx.project, scores)
-    ctx.log(f"screened {len(scores)} papers, {sum(s >= 2 for s in scores.values())} relevant")
+    hist = Counter(scores.values())
+    ctx.log(f"Rated {len(scores)} papers: {hist[3]} core, {hist[2]} relevant, {hist[1]} tangential, "
+            f"{hist[0]} off-topic")
 
 
 def select(ctx: Ctx, count: int, pool: Iterable[str] | None = None) -> list[str]:
@@ -90,25 +108,38 @@ def select(ctx: Ctx, count: int, pool: Iterable[str] | None = None) -> list[str]
     chosen = [r.paper.id for r in cands[:count]]
     ctx.store.update_papers(ctx.project, chosen, status="included")
     if chosen:
-        ctx.log(f"added {len(chosen)} papers to the graph")
+        total = len(included) + len(chosen)
+        ctx.log(f"Added {len(chosen)} papers to the graph ({total} in total)")
+    elif count:
+        ctx.log("No further relevant candidates to add")
     return chosen
 
 
 async def fetch_links(ctx: Ctx, ids: list[str],
                       direction: Literal["references", "citations"] = "references") -> list[str]:
     """Fetch citation links (with contexts) for papers; returns ids of the papers on the other end."""
-    results = await asyncio.gather(*(ctx.s2.links(i, direction) for i in ids), return_exceptions=True)
+    ctx.work(len(ids), f"Fetching {direction} with citation contexts for {len(ids)} papers")
+
+    async def ticked(paper_id):
+        try:
+            return await ctx.s2.links(paper_id, direction)
+        finally:
+            ctx.tick()
+
+    results = await asyncio.gather(*(ticked(i) for i in ids), return_exceptions=True)
     others: list[str] = []
     for paper_id, res in zip(ids, results):
         if isinstance(res, BaseException):
-            ctx.log(f"fetching {direction} of {paper_id} failed: {res}")
+            ctx.log(f"Could not fetch {direction} of paper {paper_id}: {res}")
             continue
         ctx.store.add_papers(ctx.project, (p for p, _ in res))
         ctx.store.add_citations(ctx.project, (link for _, link in res))
         others += [p.id for p, _ in res]
         if direction == "references":
             ctx.store.update_papers(ctx.project, [paper_id], refs_fetched=1)
-    return list(dict.fromkeys(others))
+    others = list(dict.fromkeys(others))
+    ctx.log(f"Fetched {direction}: {len(others)} linked papers")
+    return others
 
 
 async def refresh_metadata(ctx: Ctx, ids: list[str]) -> None:
@@ -123,6 +154,7 @@ async def snowball(ctx: Ctx, limit: int) -> list[str]:
     counts = Counter(e["dst"] for e in ctx.store.edges(ctx.project, ["cites"])
                      if e["src"] in included and e["dst"] not in included)
     frequent = [n[2:] for n, c in counts.most_common(3 * limit) if c >= 2]
+    ctx.log(f"Found {len(frequent)} references cited by at least two graph papers")
     await screen(ctx, frequent)
     return select(ctx, limit, frequent)
 
@@ -144,12 +176,19 @@ async def expand(ctx: Ctx, ids: list[str], direction: str, limit: int) -> list[s
 
 async def prune(ctx: Ctx, criterion: str) -> list[str]:
     batches = chunks(ctx.store.papers(ctx.project, "included"), SCREEN_BATCH)
-    results = await asyncio.gather(*(ctx.llm.json(Screening, SYSTEM, prune_prompt(criterion, [r.paper for r in b]))
-                                     for b in batches))
+    ctx.work(len(batches), f"Checking {sum(map(len, batches))} papers against: {criterion}")
+
+    async def run(b):
+        try:
+            return await ctx.llm.json(Screening, SYSTEM, prune_prompt(criterion, [r.paper for r in b]))
+        finally:
+            ctx.tick()
+
+    results = await asyncio.gather(*(run(b) for b in batches))
     drop = [b[i.ref].paper.id for b, res in zip(batches, results)
             for i in res.items if 0 <= i.ref < len(b) and i.relevance >= 2]
     ctx.store.exclude_papers(ctx.project, drop)
-    ctx.log(f"pruned {len(drop)} papers matching {criterion!r}")
+    ctx.log(f"Removed {len(drop)} papers matching {criterion!r}")
     return drop
 
 
@@ -158,5 +197,7 @@ def apply_filter(ctx: Ctx, year_min: int | None, year_max: int | None, min_citat
             if (year_min and (r.paper.year or 0) < year_min) or (year_max and (r.paper.year or 9999) > year_max)
             or (min_citations is not None and r.paper.citation_count < min_citations)]
     ctx.store.exclude_papers(ctx.project, drop)
-    ctx.log(f"filter removed {len(drop)} papers")
+    bounds = ", ".join(x for x in (f"from {year_min}" if year_min else "", f"until {year_max}" if year_max else "",
+                                   f"≥{min_citations} citations" if min_citations is not None else "") if x)
+    ctx.log(f"Filter ({bounds or 'no bounds'}) removed {len(drop)} papers")
     return drop

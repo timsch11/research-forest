@@ -17,6 +17,62 @@ def walk(node):
             yield from walk(v)
 
 
+def _all_models(model, seen=None):
+    """The model and every nested BaseModel reachable from its fields."""
+    import typing
+    from pydantic import BaseModel
+    seen = seen if seen is not None else {}
+    if model.__name__ not in seen:
+        seen[model.__name__] = model
+        for f in model.model_fields.values():
+            stack = [f.annotation]
+            while stack:
+                t = stack.pop()
+                if isinstance(t, type) and issubclass(t, BaseModel):
+                    _all_models(t, seen)
+                stack += list(typing.get_args(t))
+    return seen
+
+
+def _schema_objects(schema, path="$"):
+    """Yield (path, object schema) for every object node, following properties and items."""
+    if schema.get("type") == "object":
+        yield path, schema
+        for name, sub in schema["properties"].items():
+            yield from _schema_objects(sub, f"{path}.{name}")
+    for key in ("items",):
+        if key in schema:
+            yield from _schema_objects(schema[key], f"{path}[]")
+    for sub in schema.get("anyOf", []):
+        yield from _schema_objects(sub, path)
+
+
+@pytest.mark.parametrize("model", LLM_MODELS)
+def test_strict_schema_keeps_every_field(model):
+    """Regression: a field named like a JSON-Schema keyword ("title") must not be stripped."""
+    schema = strict_schema(model)
+    assert set(schema["properties"]) == set(model.model_fields)
+    nested = {name: m for name, m in _all_models(model).items()}
+    for path, obj in _schema_objects(schema):
+        matches = [m for m in nested.values() if set(m.model_fields) == set(obj["properties"])]
+        assert matches, f"{model.__name__} {path}: properties {sorted(obj['properties'])} match no model"
+
+
+@pytest.mark.parametrize("model", LLM_MODELS)
+def test_strict_schema_output_round_trips(model):
+    """A response that fills exactly the schema's required fields must validate."""
+    def fake(schema):
+        if "anyOf" in schema:
+            return None
+        t = schema.get("type")
+        if "enum" in schema:
+            return schema["enum"][0]
+        if t == "object":
+            return {k: fake(v) for k, v in schema["properties"].items()}
+        return {"array": [], "string": "x", "integer": 1, "number": 1.0, "boolean": False}[t]
+    model.model_validate(fake(strict_schema(model)))
+
+
 @pytest.mark.parametrize("model", LLM_MODELS)
 def test_strict_schema(model):
     schema = strict_schema(model)

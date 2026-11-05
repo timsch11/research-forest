@@ -106,20 +106,55 @@ async function poll() {
     state.logSince = Math.max(state.logSince, l.t);
   }
   $("log").scrollTop = $("log").scrollHeight;
-  const last = p.log.length ? p.log[p.log.length - 1].msg : null;
+  const meaningful = p.log.filter((l) => l.msg !== "done");  // keep the run summary visible, not "done"
+  const last = meaningful.length ? meaningful[meaningful.length - 1].msg : null;
   if (last) $("status").textContent = last;
   else if (!p.running) $("status").textContent = `${p.status}`;
   $("status").classList.toggle("busy", p.running);
   $("undo-btn").disabled = p.running || !p.snapshots.length;
+  renderProgress(p.progress, p.running);
   const finished = state.running && !p.running;
   state.running = p.running;
   if (p.running) {
     if (p.log.length) await refreshGraph(true);
-    state.polling = setTimeout(poll, 2000);
+    state.polling = setTimeout(poll, 1200);
   } else if (finished) {
     await refreshGraph();
     loadProjects(state.project);
   }
+}
+
+const fmtTime = (s) => (s >= 60 ? `${Math.floor(s / 60)}m ${String(Math.floor(s % 60)).padStart(2, "0")}s` : `${Math.floor(s)}s`);
+
+function renderProgress(p, running) {
+  const box = $("progress");
+  // visible while running, then for a few seconds after the job ends (longer if it failed)
+  const linger = p && p.error ? 30 : 10;
+  const recent = p && p.finished && Date.now() / 1000 - p.finished < linger;
+  clearTimeout(state.hideProgress);
+  if (!p || !(running || recent)) {
+    box.classList.add("hidden");
+    return;
+  }
+  if (!running) state.hideProgress = setTimeout(() => box.classList.add("hidden"), linger * 1000);
+  box.classList.remove("hidden");
+  box.classList.toggle("error", Boolean(p.error));
+  const keys = p.plan.map((s) => s.key);
+  const idx = Math.max(0, keys.indexOf(p.stage));
+  const doneAll = p.finished && !p.error;
+  $("progress-steps").innerHTML = p.plan.map((s, i) => {
+    const cls = doneAll || i < idx ? "done" : i === idx ? (p.error ? "failed" : "current") : "";
+    return `<li class="${cls}">${esc(s.label)}</li>`;
+  }).join("");
+  const frac = p.total ? p.done / p.total : 0;
+  const overall = doneAll ? 1 : (idx + frac) / keys.length;
+  $("progress-fill").style.width = `${Math.round(overall * 100)}%`;
+  $("progress-title").textContent = p.error ? "Failed" : doneAll ? "Finished"
+    : p.job === "refine" ? "Refining the graph" : "Building the graph";
+  const elapsed = (p.finished || Date.now() / 1000) - p.started;
+  $("progress-time").textContent = fmtTime(Math.max(0, elapsed));
+  $("progress-label").textContent = p.error || p.label || "";
+  $("progress-count").textContent = !p.error && p.total ? `${p.done} / ${p.total}` : "";
 }
 
 /* ---------------------------------------------------------------- graph */

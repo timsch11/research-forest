@@ -106,7 +106,7 @@ async def test_per_paper_failures_do_not_abort(settings, logs):
     f = make_forest(settings, backend, logs=logs)
     project = await build(f)
     assert f.store.project(project)["status"] == "ready"
-    assert any("relation analysis failed" in m for m in logs)
+    assert any("lineage batch failed" in m for m in logs)
     await f.aclose()
 
 
@@ -383,3 +383,50 @@ def test_relation_prompts_anchor_on_hubs_in_mixed_batches():
     plan = plan_relation_prompts(pairs, cap=15)
     assert sorted((a, c) for a, c, _ in plan) == [("N1", False), ("N1", True), ("N2", False), ("N2", True)]
     assert sum(len(b) for *_, b in plan) == 16  # 4 prompts instead of 2 + 8 (by citing) or 8 + 2 (by cited)
+
+
+# ---------------------------------------------------------------- progress
+
+
+async def test_build_reports_ordered_progress(settings, fake_backend):
+    from research_forest.engine import JOB_STAGES
+    events, logs = [], []
+    f = make_forest(settings, fake_backend, logs=logs)
+    f.on_progress = lambda _p, e: events.append(dict(e))
+    await build(f)
+    assert events[0]["job"] == "build" and [s["key"] for s in events[0]["plan"]] == [k for k, _ in JOB_STAGES["build"]]
+    order = [k for k, _ in JOB_STAGES["build"]]
+    stages = list(dict.fromkeys(e["stage"] for e in events[1:]))
+    assert stages == [k for k in order if k in stages]  # never goes backwards
+    assert {"scope", "search", "screen", "extract", "lineage", "synthesize"} <= set(stages)
+    assert all(e["done"] <= e["total"] or e["total"] == 0 for e in events[1:])
+    finished = [e for e in events if e.get("stage") == "extract" and e["total"] and e["done"] == e["total"]]
+    assert finished and "Extracting methods" in finished[-1]["label"]
+    assert logs[-1].startswith("Done in ") and " papers, " in logs[-1]
+    assert any(m.startswith("Rated ") and "core" in m for m in logs)
+    await f.aclose()
+
+
+async def test_refine_reports_progress(forest, fake_backend):
+    project = await build(forest)
+    events = []
+    forest.on_progress = lambda _p, e: events.append(dict(e))
+    await forest.refine(project, "only work since 2020")
+    assert events[0]["job"] == "refine"
+    assert [e["stage"] for e in events[1:3]] == ["plan", "plan"]
+    assert "apply" in {e.get("stage") for e in events}
+
+
+async def test_llm_error_message_is_readable():
+    from conftest import FakeBackend
+    from research_forest.llm import LLM
+    from research_forest.models import Scope
+
+    class Missing(FakeBackend):
+        def _scope(self, u, r):
+            out = super()._scope(u, r)
+            del out["title"]
+            return out
+
+    with pytest.raises(RuntimeError, match=r"did not return a valid Scope after 2 attempts \(title: Field required\)"):
+        await LLM(Missing(), retries=1).json(Scope, "s", "u")

@@ -57,7 +57,10 @@ def strict_schema(model: type[BaseModel]) -> dict:
             target = copy.deepcopy(defs[node["$ref"].rsplit("/", 1)[-1]])
             extra = {k: v for k, v in node.items() if k != "$ref"}
             return walk({**target, **extra})
-        out = {k: walk(v) for k, v in node.items() if k not in ("default", "title")}
+        # Drop the "default"/"title" *keywords*, but never entries of "properties": those are field
+        # names, and a field may well be called "title".
+        out = {k: ({name: walk(sub) for name, sub in v.items()} if k == "properties" else walk(v))
+               for k, v in node.items() if k not in ("default", "title")}
         if out.get("type") == "object" and "properties" in out:
             out["required"] = list(out["properties"])
             out["additionalProperties"] = False
@@ -96,6 +99,13 @@ class JsonCache:
     def put(self, key: str, value: Any) -> None:
         with self._lock, self._conn:
             self._conn.execute("INSERT OR REPLACE INTO llm_cache VALUES (?, ?)", (key, json.dumps(value)))
+
+
+def _brief(e: Exception) -> str:
+    """One-line description of a validation/JSON error."""
+    if isinstance(e, ValidationError):
+        return "; ".join(f"{'.'.join(map(str, err['loc'])) or 'output'}: {err['msg']}" for err in e.errors()[:5])
+    return str(e).splitlines()[0][:200]
 
 
 class LLM:
@@ -139,14 +149,16 @@ class LLM:
                 continue
             except (ValidationError, ValueError) as e:  # JSONDecodeError is a ValueError
                 last_err = e
-                log.warning("invalid %s output (attempt %d): %s", model.__name__, attempt + 1, e)
+                log.warning("%s returned invalid %s (attempt %d/%d): %s — retrying", self.backend.name,
+                            model.__name__, attempt + 1, self.retries + 1, _brief(e))
                 prompt = (f"{user}\n\nYour previous answer was invalid ({str(e)[:500]}). "
                           "Reply with JSON that matches the schema exactly.")
                 continue
             if self.cache:
                 self.cache.put(key, result.model_dump(mode="json"))
             return result
-        raise RuntimeError(f"LLM failed to produce valid {model.__name__}: {last_err}")
+        raise RuntimeError(f"{self.backend.name} did not return a valid {model.__name__} after "
+                           f"{self.retries + 1} attempts ({_brief(last_err) if last_err else 'no output'})")
 
     async def aclose(self) -> None:
         await self.backend.aclose()

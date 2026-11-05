@@ -18,7 +18,8 @@ Open the URL it prints. The token in it is exchanged for a cookie, so later visi
 | **Details panel** | For a paper: its contribution, what it builds on and what changed, who builds on it, methods, datasets, limitations (marked *stated*, *citing* or *inferred*), future work, limitation themes and related open questions. For an entity: every connected paper, grouped by relation. |
 | **Open questions** | The synthesised research questions. Click one to see its motivating themes and papers. |
 | **Refine / Ask** | The command bar. See below. |
-| **Progress log** | Live output of builds and refinements. |
+| **Progress card** | While a build or refinement runs: a stage stepper, an overall progress bar, the current step with counts (e.g. *Judging 275 citations… 24 / 39*) and elapsed time. It ends with a run summary. |
+| **Progress log** | Every step in plain language: what was searched, how many papers were rated core or relevant, how many were added, how many needed full-text passages, and so on. |
 
 The UI follows your system's light or dark theme and works offline; Cytoscape.js is bundled.
 
