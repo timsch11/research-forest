@@ -114,8 +114,9 @@ def test_gapfill_prompt_omits_abstract_and_contexts():
 
 def test_gapfill_fields_and_blocks():
     passages = {"datasets": ["p"], "tables": ["Table 2 — columns: A | B"], "limitation_sections": ["6 Limitations: x"]}
-    assert prompts.gapfill_fields(passages) == ["datasets", "limitations"]
+    assert prompts.gapfill_fields(passages) == ["datasets", "limitations", "baselines"]  # tables -> baselines
     prompt = prompts.gapfill_prompt(GOOD, "c", passages)
-    assert "these fields: datasets, limitations" in prompt
+    assert "these fields: datasets, limitations, baselines" in prompt
+    assert prompts.gapfill_fields({"datasets": ["p"], "table_refs": [{"label": "x"}]}) == ["datasets"]
     assert 'source="table captions, column headers and row labels from the main paper"' in prompt
     assert "limitations, conclusion and discussion sections" in prompt and "pre-training corpora" in prompt

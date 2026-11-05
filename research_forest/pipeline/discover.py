@@ -115,11 +115,13 @@ def select(ctx: Ctx, count: int, pool: Iterable[str] | None = None) -> list[str]
     pool = None if pool is None else set(pool)
     included = {r.node for r in ctx.store.papers(ctx.project, "included")}
     incoming = Counter(e["dst"] for e in ctx.store.edges(ctx.project, ["cites"]) if e["src"] in included)
+    # being compared against in a graph paper's results is a stronger signal than a citation
+    compared = Counter(e["dst"] for e in ctx.store.edges(ctx.project, ["compares_with"]) if e["src"] in included)
     cands = [r for r in ctx.store.papers(ctx.project, "candidate")
              if (r.relevance or 0) >= 2 and (pool is None or r.paper.id in pool)]
     year = datetime.date.today().year
     cands.sort(key=lambda r: r.relevance * 10 + 2.0 * math.log1p(citations_per_year(r.paper, year))
-               + 3 * incoming[r.node], reverse=True)
+               + 3 * incoming[r.node] + 4 * compared[r.node], reverse=True)
     chosen = [r.paper.id for r in cands[:count]]
     ctx.store.update_papers(ctx.project, chosen, status="included")
     if chosen:

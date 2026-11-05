@@ -16,6 +16,7 @@ import uvicorn
 from research_forest.config import Settings
 from research_forest.engine import Forest
 from research_forest.models import DatasetItem, Extraction, LimitationItem, MethodItem, Paper, Scope
+from research_forest.pipeline import baselines
 from research_forest.pipeline.analyze import apply_extraction
 from research_forest.pipeline.context import Ctx
 from research_forest.store import Store, pid
@@ -87,14 +88,19 @@ def seed(s: Store, settings: Settings) -> int:
      "T":"Quadratic time and memory in sequence length", "LN":"Approximation hurts autoregressive decoding", "PF":"Random-feature variance degrades accuracy",
      "FA":"Requires custom CUDA kernels tied to specific GPUs", "S4":"Weaker in-context recall than attention", "MB":"Struggles on associative recall vs. attention",
      "LRA":"Synthetic tasks may not reflect real long-context use", "RF":"LSH adds overhead for moderate lengths"}
+    BASELINES = {"FA": ["Linformer", "Performer", "Reformer", "Linear attention"], "FA2": ["FlashAttention"],
+                 "MB": ["H3", "Hyena", "RetNet"], "HY": ["H3", "S4"], "BB": ["Longformer"], "LF": ["Transformer-XL"],
+                 "M2": ["Mamba"], "RN": ["Transformer"], "LRA": ["Linformer", "Performer", "Reformer", "BigBird"]}
     for k in P:
         mp = [MethodItem(name=methods[k], description=f"{methods[k]} method")] if k in methods else []
         used = ["Transformer"] if k not in ("T",) else []
         ds = [DatasetItem(name=d, usage="evaluation") for d, ps in datasets.items() if k in ps]
         lim = [LimitationItem(text=limit_text.get(k, "Gains shrink at short sequence lengths"), source="stated")]
-        ex = Extraction(contribution=f"{P[k][0].split(':')[0]}: " + next((b[4] for b in B if b[0] == k), "Introduces the Transformer architecture based solely on attention."),
+        base = BASELINES.get(k, [])
+        ex = Extraction(baselines=base, contribution=f"{P[k][0].split(':')[0]}: " + next((b[4] for b in B if b[0] == k), "Introduces the Transformer architecture based solely on attention."),
                         methods_proposed=mp, methods_used=used, datasets=ds, limitations=lim, future_work=["Scale to longer contexts"], missing=[], search_terms=[])
         apply_extraction(Ctx(s, None, None, None, settings, p), k, ex)
+    baselines.link(Ctx(s, None, None, None, settings, p))
     themes = [("Quadratic cost of exact attention", ["T","TXL","LRA"], ["SP","RF","LF","LN","LT","PF","BB","FA","S4","MB"]),
               ("Approximation gap vs. exact attention", ["LN","PF","RF","LT"], ["FA","FA2"]),
               ("Hardware-specific kernels", ["FA","FA2","FA3","MB"], []),

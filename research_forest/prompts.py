@@ -108,7 +108,7 @@ def extract_prompt(p: Paper, contexts: list[str], own_sentences: list[str] = ())
     parts = [
         "Extract the paper's contribution, the methods it proposes (canonical short names) and the existing "
         "methods/architectures/algorithms it builds on or compares against (not datasets, not tasks), the "
-        "datasets/benchmarks it trains or evaluates on, its limitations (stated by authors, reported by citing "
+        "datasets/benchmarks it trains or evaluates on, the baselines it compares against, its limitations (stated by authors, reported by citing "
         "papers, or inferred) and future work. Use widely-used canonical names (e.g. 'ImageNet-1k', not "
         "'the ImageNet dataset'); the paper's own sentences are the best evidence for datasets. "
         "Add a field to `missing` only if the text gives essentially no information "
@@ -124,7 +124,7 @@ def extract_prompt(p: Paper, contexts: list[str], own_sentences: list[str] = ())
     return "\n\n".join(parts)
 
 
-GAPFILL_EXTRAS = {"tables", "limitation_sections"}  # non-field keys of PassageFinder.find() results
+GAPFILL_EXTRAS = {"tables", "limitation_sections", "table_refs"}  # non-field keys of PassageFinder.find()
 
 
 def gapfill_fields(passages: dict[str, list[str]]) -> list[str]:
@@ -132,6 +132,8 @@ def gapfill_fields(passages: dict[str, list[str]]) -> list[str]:
     fields = [f for f in passages if f not in GAPFILL_EXTRAS]
     if passages.get("limitation_sections") and "limitations" not in fields:
         fields.append("limitations")
+    if passages.get("tables"):  # results tables list the compared methods
+        fields.append("baselines")
     return fields
 
 
@@ -143,7 +145,9 @@ def gapfill_prompt(p: Paper, contribution: str, passages: dict[str, list[str]]) 
              "methods it builds on or compares against. datasets = evaluation benchmarks AND training or "
              "pre-training corpora (usage: training/evaluation/both); table columns and row labels often name "
              "them. limitations = weaknesses the authors state (source: stated), mainly from their limitations, "
-             "conclusion and discussion sections; future work separately.",
+             "conclusion and discussion sections; future work separately. baselines = other methods/models the "
+             "paper compares against in its results tables (row or column labels), by their usual short name; "
+             "not the paper's own method, its variants or ablations, and not datasets or metrics.",
              data_block("paper", [f"Title: {clip(p.title, 300)}", f"Contribution: {clip(contribution, 400)}"])]
     if tables := passages.get("tables"):
         parts.append(data_block("table captions, column headers and row labels from the main paper",
@@ -171,6 +175,7 @@ def relate_prompt(anchor: Paper, anchor_contribution: str | None,
         ctx = " | ".join(_unique(edge.get("contexts", []), RELATE_CONTEXTS, RELATE_CONTEXT_CHARS)) or "none"
         flags = ", ".join(clip(x, 30) for x in edge.get("intents") or [])
         flags += " [influential]" if edge.get("influential") else ""
+        flags += " [used as a baseline in the citing paper's results]" if edge.get("baseline") else ""
         lines.append(f"[{i}] ({p.year or '?'}) {clip(p.title, 200)}\n"
                      f"    contribution: {clip(contrib or p.abstract, RELATE_CONTRIB_CHARS)}\n"
                      f"    citation contexts: {ctx}\n    intents: {flags or 'unknown'}")
@@ -182,8 +187,9 @@ def relate_prompt(anchor: Paper, anchor_contribution: str | None,
         task = ("For each CITING paper decide whether it BUILDS UPON the cited paper", "cited paper", "citing papers")
     return (
         f"{task[0]}: directly adopts and modifies, extends, re-implements more efficiently, or replaces a "
-        "component of the cited work. Mere background, comparison baselines or dataset usage are NOT "
-        "builds_on. If builds_on, give change_type, the component changed, and a one-sentence summary of what "
+        "component of the cited work. Mere background, being a comparison baseline, or dataset usage is NOT "
+        "builds_on by itself (papers often compare against the very work they extend, so the baseline flag "
+        "alone decides nothing). If builds_on, give change_type, the component changed, and a one-sentence summary of what "
         "changes. Otherwise set those fields to null.\n\n"
         f"{CHANGE_TYPE_GUIDE}\n\n" + data_block(task[1], anchor_lines) + "\n\n" + data_block(task[2], lines))
 

@@ -44,7 +44,8 @@ SNIPPET_QUERIES = {
 }
 MAX_VOCABULARY = 12
 TRAINING_TOP_K = 3  # passages from the training-data query, added to the dataset passages
-TABLES, SECTIONS = "tables", "limitation_sections"  # reserved keys in PassageFinder.find() results
+TABLES, SECTIONS, TABLE_REFS = "tables", "limitation_sections", "table_refs"  # reserved keys in find() results
+MAX_TABLE_REFS = 80
 MAX_TABLES, TABLE_CHARS, MAX_SECTIONS, SECTION_CHARS = 15, 600, 3, 2500
 _ENV_PASSTHROUGH = ("PATH", "LANG", "LC_ALL", "HTTPS_PROXY", "HTTP_PROXY", "NO_PROXY", "https_proxy",
                     "http_proxy", "no_proxy", "SSL_CERT_FILE", "SSL_CERT_DIR", "REQUESTS_CA_BUNDLE",
@@ -127,7 +128,19 @@ async def run_worker(urls: list[str], queries: dict[str, str], settings: Setting
 
     return {"source": res.get("source"), "passages": passages, "error": res.get("error"),
             "tables": strings("tables", MAX_TABLES, TABLE_CHARS) if tables else [],
+            "table_refs": _table_refs(res.get("table_refs")) if tables else [],
             "sections": strings("sections", MAX_SECTIONS, SECTION_CHARS) if sections else []}
+
+
+def _table_refs(raw) -> list[dict]:
+    """Validate the worker's cited table labels: {label, title, arxiv, table} with bounded strings."""
+    out = []
+    for r in (raw if isinstance(raw, list) else [])[:MAX_TABLE_REFS]:
+        if isinstance(r, dict) and isinstance(r.get("label"), str) and isinstance(r.get("title"), str):
+            arxiv = r.get("arxiv") if isinstance(r.get("arxiv"), str) and len(r.get("arxiv")) <= 20 else None
+            out.append({"label": r["label"][:120], "title": r["title"][:300], "arxiv": arxiv,
+                        "table": str(r.get("table") or "")[:30]})
+    return out
 
 
 def document_urls(paper: Paper, prefer_html: bool = True) -> list[str]:
@@ -195,6 +208,8 @@ class PassageFinder:
                         found[k] = [h["text"] for h in hits][:limits.get(k, top_k)]
                 if res.get("tables"):
                     found[TABLES] = res["tables"]
+                if res.get("table_refs"):
+                    found[TABLE_REFS] = res["table_refs"]
                 if res.get("sections"):
                     found[SECTIONS] = res["sections"]
         if training := found.pop("datasets_training", None):  # merge into the dataset passages
