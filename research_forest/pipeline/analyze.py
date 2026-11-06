@@ -246,11 +246,16 @@ def plan_relation_prompts(pairs: list[dict], cap: int) -> list[tuple[str, bool, 
 
 
 def weak_evidence(data: dict, baseline: bool) -> bool:
-    """A citation not worth an LLM call: Semantic Scholar read the citing paper's full text (there
-    are citation contexts), but the citation is neither influential nor about method, and the
-    cited paper isn't one of its baselines. Without contexts nothing is known, so it is judged."""
-    return (bool(data.get("contexts")) and not data.get("influential") and not baseline
-            and "methodology" not in (data.get("intents") or []))
+    """A citation not worth an LLM call: Semantic Scholar read it in the citing paper's full text
+    (there are contexts) and classified it, but only as background or result, not methodology;
+    it isn't influential and the cited paper isn't one of the citing paper's baselines.
+
+    Unclassified citations are still judged: on a real 25-paper build, skipping those too lost
+    2 more of 29 builds-on relations, while this rule lost only two "builds on the Transformer"
+    edges for 13% fewer pairs."""
+    intents = data.get("intents") or []
+    return (bool(data.get("contexts")) and bool(intents) and "methodology" not in intents
+            and not data.get("influential") and not baseline)
 
 
 async def relate(ctx: Ctx) -> int:

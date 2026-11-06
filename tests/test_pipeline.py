@@ -440,6 +440,7 @@ def test_weak_evidence_rule():
     assert not weak_evidence({**weak, "intents": ["background", "methodology"]}, baseline=False)
     assert not weak_evidence(weak, baseline=True)  # baselines are often the work a paper extends
     assert not weak_evidence({**weak, "contexts": []}, baseline=False)  # no full text: nothing is known
+    assert not weak_evidence({**weak, "intents": []}, baseline=False)  # unclassified: judged
 
 
 async def test_lineage_skips_weak_pairs_and_always_judges_influential_ones(settings, fake_backend):
