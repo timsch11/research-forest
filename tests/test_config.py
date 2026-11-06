@@ -76,6 +76,7 @@ def test_non_secret_env_vars_are_ignored(monkeypatch):
     ('[pipeline]\ntarget_papers = true\n', "must be int"),
     ('[fulltext]\nenabled = "yes"\n', "must be bool"),
     ('[llm]\nbackend = "gemini"\n', "backend must be one of"),
+    ('[llm]\neffort = "extreme"\n', "effort must be one of"),
     ('backend = "openai"\n', "must be a \\[section\\]"),
     ('[llm\n', "invalid TOML"),
 ])

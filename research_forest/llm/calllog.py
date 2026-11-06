@@ -5,10 +5,13 @@ One line per attempt (cache hits and failed attempts included)::
     {"ts": "...", "backend": "openai", "model": "gpt-6-luna", "call": "Extraction", "attempt": 1,
      "cached": false, "seconds": 3.2, "error": null,
      "words": {"system": 85, "user": 612, "output": 140}, "chars": {...},
+     "tokens": {"input": 1450, "cached": 900, "output": 410, "reasoning": 220, "cost_usd": 0.0012, "turns": 2},
      "system": "...", "user": "...", "output": "..."}
 
-Sizes are reported in words and characters: exact token counts depend on the backend's
-tokenizer and are not reported by every backend (as a rule of thumb, tokens ≈ 1.3 × words).
+``tokens`` holds what the backend itself reported: ``input`` includes cached prompt tokens and
+everything the CLI adds around our prompt; ``output`` includes reasoning/thinking tokens. All
+backends report it when their API does (``cost_usd`` and ``turns`` only Claude Code); words and
+characters are always there, as a fallback (tokens ≈ 1.3 × words).
 """
 
 from __future__ import annotations
@@ -39,7 +42,7 @@ class CallLog:
 
     def record(self, *, backend: str, model: str | None, call: str, attempt: int, system: str, user: str,
                output: Any = None, error: BaseException | str | None = None, cached: bool = False,
-               started: float | None = None) -> None:
+               started: float | None = None, tokens: dict | None = None) -> None:
         out = _text(output)
         entry = {
             "ts": datetime.now(timezone.utc).isoformat(timespec="milliseconds"),
@@ -48,6 +51,7 @@ class CallLog:
             "error": None if error is None else (str(error)[:2000] or type(error).__name__),
             "words": {"system": _words(system), "user": _words(user), "output": _words(out)},
             "chars": {"system": len(system), "user": len(user), "output": len(out)},
+            "tokens": tokens or None,
             "system": system, "user": user, "output": out,
         }
         line = json.dumps(entry, ensure_ascii=False)
@@ -63,7 +67,7 @@ def read_entries(path: str | Path) -> Iterable[dict]:
 
 
 def summarize(path: str | Path) -> str:
-    """Per call type: number of calls, cache hits, errors, words in/out and time."""
+    """Per call type: calls, cache hits, errors, words in/out, reported tokens and time."""
     stats: dict[str, dict[str, float]] = defaultdict(lambda: defaultdict(float))
     for e in read_entries(path):
         s = stats[e["call"]]
@@ -73,19 +77,37 @@ def summarize(path: str | Path) -> str:
         s["words_in"] += e["words"]["system"] + e["words"]["user"]
         s["words_out"] += e["words"]["output"]
         s["seconds"] += e["seconds"]
+        if not e["cached"] and (t := e.get("tokens")):
+            s["metered"] += 1
+            for k in ("input", "cached", "output", "reasoning", "cost_usd"):
+                s[f"tok_{k}"] += t.get(k) or 0
     if not stats:
         return "no LLM calls logged"
-    header = f"{'call':<14}{'calls':>7}{'cached':>8}{'errors':>8}{'words in':>11}{'words out':>11}{'avg in':>8}{'seconds':>9}"
+    cols = [("calls", "calls", 6, 0), ("cached", "cached", 7, 0), ("errors", "errors", 7, 0),
+            ("words in", "words_in", 10, 0), ("words out", "words_out", 10, 0),
+            ("tokens in", "tok_input", 11, 0), ("prompt cache", "tok_cached", 13, 0),
+            ("tokens out", "tok_output", 11, 0), ("reasoning", "tok_reasoning", 10, 0), ("seconds", "seconds", 9, 1)]
+    width = max(14, *(len(n) + 1 for n in stats))
+    header = f"{'call':<{width}}" + "".join(f"{label:>{w}}" for label, _, w, _ in cols)
+    total: dict[str, float] = defaultdict(float)
+
+    def row(name: str, s: dict[str, float]) -> str:
+        return f"{name:<{width}}" + "".join(f"{s.get(k, 0):>{w}.{d}f}" for _, k, w, d in cols)
+
     lines = [header, "-" * len(header)]
-    total = defaultdict(float)
-    for name, s in sorted(stats.items(), key=lambda kv: -kv[1]["words_in"]):
-        lines.append(f"{name:<14}{s['calls']:>7.0f}{s['cached']:>8.0f}{s['errors']:>8.0f}{s['words_in']:>11.0f}"
-                     f"{s['words_out']:>11.0f}{s['words_in'] / s['calls']:>8.0f}{s['seconds']:>9.1f}")
+    for name, s in sorted(stats.items(), key=lambda kv: -(kv[1]["tok_input"] or kv[1]["words_in"])):
+        lines.append(row(name, s))
         for k, v in s.items():
             total[k] += v
-    lines += ["-" * len(header),
-              f"{'total':<14}{total['calls']:>7.0f}{total['cached']:>8.0f}{total['errors']:>8.0f}"
-              f"{total['words_in']:>11.0f}{total['words_out']:>11.0f}{total['words_in'] / total['calls']:>8.0f}"
-              f"{total['seconds']:>9.1f}",
-              "", "Sizes in words (tokens ≈ 1.3 × words). Cached calls cost nothing."]
+    lines += ["-" * len(header), row("total", total), ""]
+    uncached = total["calls"] - total["cached"]
+    if total["metered"]:
+        lines.append(f"Tokens as reported by the backend for {total['metered']:.0f} of {uncached:.0f} uncached calls: "
+                     "input includes the prompt cache and everything the CLI adds; output includes reasoning.")
+        if total["tok_cost_usd"]:
+            lines.append(f"Reported cost: ${total['tok_cost_usd']:.4f} (estimated at API list prices; a subscription "
+                         "isn't charged this, but it shows the relative usage)")
+    else:
+        lines.append("The backend reported no token counts: sizes are in words (tokens ≈ 1.3 × words).")
+    lines.append("Cached calls cost nothing.")
     return "\n".join(lines)

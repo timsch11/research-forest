@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from ..config import Settings
-from .base import LLM, Backend, JsonCache, TransientLLMError, strict_schema
+from .base import LLM, Backend, JsonCache, Reply, TransientLLMError, strict_schema
 from .calllog import CallLog
 
 
@@ -13,10 +13,12 @@ def make_backend(settings: Settings) -> Backend:
         return OpenAIBackend(settings.openai_base_url, settings.openai_api_key, settings.model, settings.llm_timeout)
     if settings.backend == "claude-code":
         from .cli import ClaudeCodeBackend
-        return ClaudeCodeBackend(settings.model, settings.llm_timeout)
+        return ClaudeCodeBackend(settings.model, settings.llm_timeout, effort=settings.llm_effort,
+                                 user_config=settings.cli_user_config)
     if settings.backend == "codex":
         from .cli import CodexBackend
-        return CodexBackend(settings.model, settings.llm_timeout)
+        return CodexBackend(settings.model, settings.llm_timeout, effort=settings.llm_effort,
+                            user_config=settings.cli_user_config)
     raise ValueError(f"unknown backend {settings.backend!r}")
 
 
@@ -27,4 +29,4 @@ def make_llm(settings: Settings, backend: Backend | None = None) -> LLM:
                retries=settings.llm_retries, cache=cache, call_log=call_log)
 
 
-__all__ = ["CallLog", "LLM", "Backend", "JsonCache", "TransientLLMError", "make_backend", "make_llm", "strict_schema"]
+__all__ = ["CallLog", "LLM", "Backend", "JsonCache", "Reply", "TransientLLMError", "make_backend", "make_llm", "strict_schema"]

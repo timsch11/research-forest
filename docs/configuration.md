@@ -28,12 +28,14 @@ All settings are optional.
 | Key | Default | Description |
 |---|---|---|
 | `backend` | `"openai"` | `"openai"`, `"claude-code"` or `"codex"` |
-| `model` | `gpt-6-luna` for `openai`; the CLI's default otherwise | Model passed to the backend |
+| `model` | `gpt-6-luna` for `openai` and `codex`, `haiku` for `claude-code` | Model passed to the backend. The CLI backends deliberately don't use your CLI's default model, which is often the largest one |
 | `base_url` | `"https://api.openai.com/v1"` | OpenAI-compatible endpoint |
 | `concurrency` | `4` | Parallel LLM calls |
 | `timeout` | `300` | Seconds per call |
 | `retries` | `2` | Retries after invalid output or transient errors |
 | `cache` | `true` | Cache responses in `<db_path>.llmcache` |
+| `effort` | `"low"` | Reasoning effort for `claude-code` and `codex`: `low`, `medium`, `high`, `xhigh` or `max`. `""` uses the CLI's default. Extraction doesn't need deep reasoning, and thinking tokens are usually the largest part of a call's output |
+| `cli_user_config` | `false` | Let `claude` and `codex` load your own setup. By default, Claude Code runs with `--setting-sources ""` (no CLAUDE.md, memory, hooks or plugins) and Codex with `--ignore-user-config` (no `config.toml`, so none of its MCP servers, model or effort). Otherwise all of that is sent along with every call. Turn this on only if your login depends on it, e.g. an `apiKeyHelper` or proxy set in `~/.claude/settings.json` |
 
 ### `[semantic_scholar]`
 
@@ -74,10 +76,13 @@ All settings are optional.
 
 | Key | Default | Description |
 |---|---|---|
-| `llm_calls` | `true` | Record every LLM call as one JSON line: backend, model, call type, attempt, cache hit, duration, the full system and user prompt, the output or error, and word and character counts |
+| `llm_calls` | `true` | Record every LLM call as one JSON line: backend, model, call type, attempt, cache hit, duration, the full system and user prompt, the output or error, word and character counts, and the tokens the backend reported |
 | `llm_log_file` | `"research-forest-llm.jsonl"` | Where to write it (git-ignored). `research-forest llm-log` summarises it |
 
-Sizes are logged in words and characters; tokens ≈ 1.3 × words.
+Tokens are logged as the backend reports them: `input` (including prompt-cache reads and
+everything the CLI adds around our prompt), `cached`, `output` (including reasoning) and
+`reasoning`. Claude Code also reports an estimated `cost_usd` and the number of `turns`. A server
+that reports no usage only gets word and character counts (tokens ≈ 1.3 × words).
 
 ## Secrets (`.env` or environment)
 

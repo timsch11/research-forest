@@ -41,6 +41,29 @@ async def test_every_call_is_logged_with_sizes(tmp_path):
     assert first["backend"] == "scripted" and first["model"] == "m1" and first["ts"]
 
 
+async def test_reported_tokens_are_logged_and_summarised(tmp_path):
+    from research_forest.llm import Reply
+    path = tmp_path / "calls.jsonl"
+    tokens = {"input": 4000, "cached": 3000, "output": 900, "reasoning": 600, "cost_usd": 0.0011, "turns": 2}
+    llm = LLM(Scripted([Reply("not json", tokens), Reply(SCOPE, tokens)]), retries=1, call_log=CallLog(path),
+              cache=JsonCache(tmp_path / "c.db"))
+    await llm.json(Scope, "s", "u")
+    await llm.json(Scope, "s", "u")  # cache hit: no tokens
+    entries = list(read_entries(path))
+    assert [e["tokens"] for e in entries] == [tokens, tokens, None]  # failed attempts cost tokens too
+    report = summarize(path)
+    total = next(line for line in report.splitlines() if line.startswith("total"))
+    assert total.split()[1:] == ["3", "1", "1", *total.split()[4:6], "8000", "6000", "1800", "1200",
+                                 total.split()[-1]]
+    assert "for 2 of 2 uncached calls" in report and "$0.0022" in report
+
+
+def test_summary_without_token_counts(tmp_path):
+    path = tmp_path / "calls.jsonl"
+    CallLog(path).record(backend="b", model=None, call="Scope", attempt=1, system="s", user="u v", output="x")
+    assert "reported no token counts" in summarize(path)
+
+
 async def test_backend_errors_are_logged_then_raised(tmp_path):
     path = tmp_path / "calls.jsonl"
     llm = LLM(Scripted([KeyError("boom")]), call_log=CallLog(path))

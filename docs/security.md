@@ -36,7 +36,9 @@ hostile. Whatever an LLM produces from that input is treated as untrusted as wel
   paper is logged as a warning but kept as data, because papers *about* prompt injection
   legitimately contain such phrases.
 - **Agent backends.** Claude Code runs with `--tools ""`, `--strict-mcp-config` (no MCP
-  servers) and `--disable-slash-commands`, in an empty temporary directory. Injected text
+  servers), `--disable-slash-commands` and, by default, `--setting-sources ""` (none of your
+  hooks or plugins), in an empty temporary directory. Codex skips your `config.toml` by
+  default, so none of its MCP servers start. Injected text
   therefore has no tools to act through. Codex runs in its `read-only` sandbox (no writes,
   no network). Note that Codex can still *read* local files, so its output is only ever used
   as validated, length-capped data. Prefer `claude-code` or `openai` when you process

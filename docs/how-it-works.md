@@ -199,8 +199,17 @@ Prompt size is budgeted per item (see the constants at the top of `prompts.py`):
 As a reference point, a synthetic 65-paper build plus a refinement and three questions dropped
 from about 406k to 292k prompt tokens with these measures, roughly 28% less.
 
-The `claude-code` backend adds about 2k tokens of fixed CLI overhead per call. Most of it is
-served from Claude's prompt cache after the first call.
+The CLI backends are agents with a fixed prompt of their own, sent with every call:
+
+| Backend | Fixed overhead per call | What research-forest does about it |
+|---|---|---|
+| `claude-code` | About 3.4k tokens, mostly prompt-cache reads, re-read on each of its 2 turns (`--json-schema` returns the answer through a tool) | Skips your own setup (`--setting-sources ""`): a 2k-word `~/.claude/CLAUDE.md` alone otherwise added about 19k input tokens per call |
+| `codex` | About 9k tokens of built-in tools, skills and agent text, plus your global `AGENTS.md` | Replaces Codex's 22k-character agent instructions with our system prompt, and skips `~/.codex/config.toml` (`--ignore-user-config`) |
+
+Both use a small model by default (`haiku`, `gpt-6-luna`) and `effort = "low"`, because
+thinking tokens otherwise outweigh the answer: about 1.2k thinking tokens per extraction call on
+Haiku at default effort, against about 350 tokens of JSON. `research-forest llm-log` shows the
+tokens each backend reported.
 
 ## Structured output
 
@@ -212,4 +221,4 @@ the error fed back to the model. Each backend gets the schema in the form it sup
   mode, then to `json_object`, then to a plain-text instruction for servers that don't support
   the stricter modes.
 - `claude-code`: `claude -p --output-format json --json-schema …`
-- `codex`: `codex exec --output-schema …`
+- `codex`: `codex exec --json --output-schema …`
