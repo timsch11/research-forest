@@ -292,7 +292,8 @@ async def test_single_pass_reads_full_text_first_and_extracts_once(settings, fak
                 "sections": ["6 Limitations: The method only supports English."] if sections else []}
 
     monkeypatch.setattr(fulltext, "run_worker", fake_worker)
-    settings.fulltext_always_fill_datasets = True  # single_pass is on by default
+    settings.fulltext_always_fill_datasets = True
+    settings.fulltext_single_pass = True
     f = make_forest(settings, fake_backend)
     project = await f.build("efficient attention")
     included = f.store.papers(project, "included")
@@ -315,6 +316,7 @@ async def test_single_pass_gap_fills_only_fields_it_had_no_evidence_for(settings
 
     monkeypatch.setattr(fulltext, "run_worker", fake_worker)
     settings.fulltext_always_fill_datasets = True
+    settings.fulltext_single_pass = True
     original = fake_backend._extraction
     fake_backend._extraction = lambda user, refs: {**original(user, refs), "limitations": []}  # nothing found
     f = make_forest(settings, fake_backend)

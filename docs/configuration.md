@@ -68,7 +68,7 @@ All settings are optional.
 | `prefer_html` | `true` | Try arXiv's HTML rendering before PDFs (cleaner text, readable tables) |
 | `limitation_sections` | `true` | When the full text is read, also take limitations from its Limitations, Conclusion, Discussion and Future-work sections |
 | `always_fill_datasets` | `true` | Search the full text for datasets for every paper. `false` does this only when fewer than 3 datasets were found |
-| `single_pass` | `true` | With `always_fill_datasets`: read the full text *before* extracting, so each paper takes one extraction call instead of an extraction plus a gap-fill call. A gap-fill call is still made for a field that came back empty without full-text evidence |
+| `single_pass` | `false` | With `always_fill_datasets`: read the full text *before* extracting, so each paper takes one extraction call instead of an extraction plus a gap-fill call (a gap-fill call is still made for a field that came back empty without full-text evidence). On 10 gold papers this cut tokens per paper by about a third and the estimated cost by about 25%, but found fewer limitations (recall 67% → 56%) and slightly fewer datasets (95% → 93%), so it is off by default |
 
 ### `[server]` and `[storage]`
 

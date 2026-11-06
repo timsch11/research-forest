@@ -154,7 +154,7 @@ class Settings:
     fulltext_allow_private: bool = False  # SSRF guard; only disable for local testing
     fulltext_prefer_html: bool = True  # try arXiv's HTML rendering before PDFs (cleaner text and tables)
     fulltext_always_fill_datasets: bool = True  # gap-fill datasets for every paper, not only thin results
-    fulltext_single_pass: bool = True  # with always_fill_datasets: read the full text first, extract in one call
+    fulltext_single_pass: bool = False  # with always_fill_datasets: read the full text first, extract in one call
     fulltext_limitation_sections: bool = True  # read Limitations/Conclusion/Discussion sections when gap filling
 
     # --- web server ---
