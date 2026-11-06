@@ -140,6 +140,13 @@ class Store:
         return [dict(r) for r in self.q("SELECT id, prompt, title, status, created, updated FROM projects "
                                         "ORDER BY updated DESC")]
 
+    def delete_project(self, project: int) -> bool:
+        """Delete a landscape and everything it owns (papers, entities, edges, snapshots, meta, index)."""
+        with self.tx() as c:
+            for table in ("papers", "entities", "edges", "snapshots", "meta", "fts"):
+                c.execute(f"DELETE FROM {table} WHERE project = ?", (project,))
+            return c.execute("DELETE FROM projects WHERE id = ?", (project,)).rowcount > 0
+
     def set_scope(self, project: int, scope: Scope) -> None:
         with self.tx() as c:
             c.execute("UPDATE projects SET scope = ?, title = ?, updated = ? WHERE id = ?",

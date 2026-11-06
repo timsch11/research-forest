@@ -27,6 +27,17 @@ def test_list_search_undo(db, capsys):
     assert "nothing to undo" in run(capsys, "--db", db, "undo", "1")
 
 
+def test_delete_asks_for_confirmation(db, capsys, monkeypatch):
+    monkeypatch.setattr("builtins.input", lambda _: "n")
+    assert "cancelled" in run(capsys, "--db", db, "delete", "1")
+    assert "efficient attention" in run(capsys, "--db", db, "list")
+    monkeypatch.setattr("builtins.input", lambda _: "y")
+    assert "deleted landscape 1" in run(capsys, "--db", db, "delete", "1")
+    assert run(capsys, "--db", db, "list") == ""
+    with pytest.raises(SystemExit, match="no landscape 1"):
+        cli.main(["--db", db, "delete", "1", "--yes"])
+
+
 def test_argument_validation(db):
     with pytest.raises(SystemExit):
         cli.main(["--db", db, "--backend", "bogus", "list"])

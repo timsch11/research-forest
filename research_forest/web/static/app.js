@@ -83,6 +83,7 @@ async function loadProjects(selectId) {
   const projects = await api("/api/projects");
   $("project-select").innerHTML = projects.map((p) =>
     `<option value="${Number(p.id)}">${esc(String(p.title || p.prompt).slice(0, 80))}</option>`).join("");
+  $("delete-btn").classList.toggle("hidden", !projects.length);
   if (!projects.length) return showStart();
   openProject(selectId ?? projects[0].id);
 }
@@ -384,6 +385,21 @@ document.addEventListener("click", (e) => {
 });
 $("project-select").addEventListener("change", (e) => openProject(e.target.value));
 $("new-btn").addEventListener("click", showStart);
+$("delete-btn").addEventListener("click", async () => {
+  if (!state.project) return;
+  const name = $("project-select").selectedOptions[0]?.textContent || `#${state.project}`;
+  if (!confirm(`Delete the landscape "${name}"? This removes its papers, graph and history and cannot be undone.`)) return;
+  try {
+    await api(`/api/projects/${state.project}`, { method: "DELETE" });
+    clearTimeout(state.polling);
+    state.project = null;
+    state.running = false;
+    if (cy) cy.elements().remove();
+    await loadProjects();
+  } catch (e) {
+    $("status").textContent = `Error: ${e.message}`;
+  }
+});
 $("build-btn").addEventListener("click", async () => {
   const prompt = $("prompt").value.trim();
   if (prompt.length < 3) return;

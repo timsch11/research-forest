@@ -19,6 +19,7 @@ Open the URL it prints. The token in it is exchanged for a cookie, so later visi
 | **Open questions** | The synthesised research questions. Click one to see its motivating themes and papers. |
 | **Refine / Ask** | The command bar. See below. |
 | **Progress card** | While a build or refinement runs: a stage stepper, an overall progress bar, the current step with counts (e.g. *Judging 275 citations… 24 / 39*) and elapsed time. It ends with a run summary. |
+| **Delete** | Next to the landscape picker: deletes the current landscape with its papers, graph and undo history, after a confirmation. It isn't possible while a build or refinement is running, and it can't be undone. Cached LLM responses are kept. |
 | **Progress log** | Every step in plain language: what was searched, how many papers were rated core or relevant, how many were added, how many needed full-text passages, and so on. |
 
 The UI follows your system's light or dark theme and works offline; Cytoscape.js is bundled.
@@ -74,6 +75,7 @@ research-forest [--db FILE] [--backend openai|claude-code|codex] [--model NAME]
 | `ask ID QUESTION` | Answer a question from the graph |
 | `search ID QUERY` | Keyword search, showing kind, node id and title |
 | `undo ID` | Undo the last refinement |
+| `delete ID [-y]` | Delete a landscape and all its data (asks for confirmation unless `-y`) |
 | `evaluate [--limit N] [--out FILE] [--compare FILE]` | Score extraction quality on the gold set (see [Development](development.md#evaluating-extraction-quality)) |
 | `llm-log [FILE]` | Summarise the LLM call log: calls, cache hits, errors, words in/out and time per call type |
 | `serve [--host H] [--port P]` | Run the web explorer |

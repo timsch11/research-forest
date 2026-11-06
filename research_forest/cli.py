@@ -68,6 +68,9 @@ def main(argv: list[str] | None = None) -> None:
     sub.add_parser("list", help="list landscapes")
     u = sub.add_parser("undo", help="undo the last refinement")
     u.add_argument("project", type=int)
+    d = sub.add_parser("delete", help="delete a landscape and all its data")
+    d.add_argument("project", type=int)
+    d.add_argument("-y", "--yes", action="store_true", help="don't ask for confirmation")
     ev = sub.add_parser("evaluate", help="score extraction quality on the gold set (eval/gold.json)")
     ev.add_argument("--gold", default="eval/gold.json")
     ev.add_argument("--limit", type=int, default=None, help="only the first N gold papers")
@@ -120,6 +123,19 @@ def main(argv: list[str] | None = None) -> None:
         if args.out:
             Path(args.out).write_text(json.dumps(report, indent=2), encoding="utf-8")
         print(format_report(report, load_report(args.compare) if args.compare else None))
+        return
+
+    if args.cmd == "delete":
+        from .store import Store
+        store = Store(_settings(args).db_path)
+        if not (proj := store.project(args.project)):
+            raise SystemExit(f"research-forest: no landscape {args.project}")
+        name = proj["title"] or proj["prompt"]
+        if not args.yes and input(f"Delete landscape {args.project} ({name})? [y/N] ").strip().lower() not in ("y", "yes"):
+            print("cancelled")
+            return
+        store.delete_project(args.project)
+        print(f"deleted landscape {args.project} ({name})")
         return
 
     async def run(forest: Forest):
