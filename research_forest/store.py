@@ -12,9 +12,10 @@ import sqlite3
 import threading
 import time
 from collections import defaultdict
+from collections.abc import Iterable, Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
-from typing import Any, Iterable, Iterator
+from typing import Any
 
 from .models import CitationLink, EntityKind, Extraction, Paper, Scope
 from .safety import sanitize
@@ -50,6 +51,9 @@ CREATE VIRTUAL TABLE IF NOT EXISTS fts USING fts5(
 
 PAPER_EDGE_KINDS = ("cites", "builds_on")
 FOLLOWUPS = "followups"  # meta key: paper id -> ids of the graph papers it was found to follow up
+LAST_CHECKED = "last_checked"  # meta key: date (YYYY-MM-DD) of the last build or check for new work
+LATEST_NEW = "latest_new"  # meta key: {"since": date, "papers": [ids]} added by the last check for new work
+SNAPSHOT_META = (LAST_CHECKED, LATEST_NEW)  # meta restored by undo
 ENTITY_EDGE_KINDS = ("proposes", "uses", "evaluates_on", "has_limitation", "addresses", "motivates", "about")
 
 
@@ -349,8 +353,10 @@ class Store:
     def graph(self, project: int) -> dict:
         """Included papers, the entities attached to them, and all edges among those nodes."""
         papers = self.papers(project, "included")
+        new = set(self.meta(project, LATEST_NEW, {}).get("papers", []))
         nodes = {r.node: {"id": r.node, "kind": "paper", "label": r.paper.title, "year": r.paper.year,
-                          "citations": r.paper.citation_count, "relevance": r.relevance, "venue": r.paper.venue}
+                          "citations": r.paper.citation_count, "relevance": r.relevance, "venue": r.paper.venue,
+                          **({"new": True} if r.paper.id in new else {})}
                  for r in papers}
         entity_nodes = {e["node"]: {"id": e["node"], "kind": e["kind"], "label": e["name"]}
                         for e in self.entities(project)}
@@ -412,6 +418,7 @@ class Store:
         dump = {t: [dict(r) for r in self.q(f"SELECT * FROM {t} WHERE project = ?", (project,))]
                 for t in ("papers", "entities", "edges")}
         dump["scope"] = (self.project(project) or {}).get("scope")
+        dump["meta"] = {k: self.meta(project, k) for k in SNAPSHOT_META}
         with self.tx() as c:
             version = c.execute("SELECT COALESCE(MAX(version), 0) + 1 FROM snapshots WHERE project = ?",
                                 (project,)).fetchone()[0]
@@ -441,6 +448,11 @@ class Store:
                                   [tuple(r[k] for k in cols) for r in dump[table]])
             if dump.get("scope"):
                 c.execute("UPDATE projects SET scope = ? WHERE id = ?", (json.dumps(dump["scope"]), project))
+            for key, value in dump.get("meta", {}).items():
+                if key in SNAPSHOT_META:
+                    c.execute("DELETE FROM meta WHERE project = ? AND key = ?", (project, key))
+                    if value is not None:
+                        c.execute("INSERT INTO meta VALUES (?, ?, ?)", (project, key, json.dumps(value)))
             c.execute("DELETE FROM snapshots WHERE project = ? AND version >= ?", (project, snap["version"]))
         self.reindex(project)
         return snap["label"]

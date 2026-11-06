@@ -10,6 +10,7 @@
 <header class="topbar">
   <div class="brand">research<span>forest</span></div>
   <select id="project-select" aria-label="Landscape"></select>
+  <button id="update-btn" class="ghost" title="Look for papers published since the last check">Check for new work</button>
   <button id="delete-btn" class="ghost danger" title="Delete this landscape" aria-label="Delete this landscape">Delete</button>
   <button id="new-btn" class="ghost">+ New landscape</button>
   <div class="spacer"></div>
@@ -53,6 +54,11 @@
     <h3>Change types</h3>
     <div id="change-filters" class="filters"></div>
 
+    <div id="new-box" class="hidden">
+      <h3 id="new-title">New</h3>
+      <ul id="new-papers" class="results"></ul>
+    </div>
+
     <h3>Open questions</h3>
     <ul id="questions" class="results"></ul>
   </aside>
@@ -67,6 +73,7 @@
       <ol id="progress-steps" class="steps"></ol>
       <div class="bar" aria-hidden="true"><div id="progress-fill"></div></div>
       <div class="progress-meta"><span id="progress-label"></span><span id="progress-count"></span></div>
+      <ul id="progress-warnings" class="warnings"></ul>
     </div>
     <div id="empty" class="empty hidden">No papers yet — the graph appears once the build has progressed.</div>
   </section>

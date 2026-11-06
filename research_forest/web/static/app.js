@@ -68,6 +68,7 @@ function initCy() {
       { selector: "edge[kind = 'compares_with']", style: {
         "line-style": "dotted", width: 1.6, "line-color": css("--limitation"), "target-arrow-color": css("--limitation"),
         opacity: 0.75 } },
+      { selector: "node[?new]", style: { "border-width": 3, "border-style": "double", "border-color": css("--accent") } },
       { selector: ".faded", style: { opacity: 0.12 } },
       { selector: ".hit", style: { "border-width": 3, "border-color": css("--accent") } },
       { selector: "node:selected", style: { "border-width": 4, "border-color": css("--text") } },
@@ -84,6 +85,7 @@ async function loadProjects(selectId) {
   $("project-select").innerHTML = projects.map((p) =>
     `<option value="${Number(p.id)}">${esc(String(p.title || p.prompt).slice(0, 80))}</option>`).join("");
   $("delete-btn").classList.toggle("hidden", !projects.length);
+  $("update-btn").classList.toggle("hidden", !projects.length);
   if (!projects.length) return showStart();
   openProject(selectId ?? projects[0].id);
 }
@@ -112,7 +114,7 @@ async function poll() {
   clearTimeout(state.polling);
   const p = await api(`/api/projects/${state.project}?since=${state.logSince}`);
   for (const l of p.log) {
-    $("log").insertAdjacentHTML("beforeend", `<li>${esc(l.msg)}</li>`);
+    $("log").insertAdjacentHTML("beforeend", `<li${l.msg.startsWith("warning:") ? ' class="warn"' : ""}>${esc(l.msg)}</li>`);
     state.logSince = Math.max(state.logSince, l.t);
   }
   $("log").scrollTop = $("log").scrollHeight;
@@ -122,6 +124,10 @@ async function poll() {
   else if (!p.running) $("status").textContent = `${p.status}`;
   $("status").classList.toggle("busy", p.running);
   $("undo-btn").disabled = p.running || !p.snapshots.length;
+  $("update-btn").disabled = p.running;
+  $("update-btn").title = `Look for papers published since the last check (${p.last_checked})`;
+  state.latestNew = p.latest_new || {};
+  if (state.graph) renderNew(state.graph);
   renderProgress(p.progress, p.running);
   const finished = state.running && !p.running;
   state.running = p.running;
@@ -139,7 +145,7 @@ const fmtTime = (s) => (s >= 60 ? `${Math.floor(s / 60)}m ${String(Math.floor(s 
 function renderProgress(p, running) {
   const box = $("progress");
   // visible while running, then for a few seconds after the job ends (longer if it failed)
-  const linger = p && p.error ? 30 : 10;
+  const linger = p && (p.error || p.warnings?.length) ? 30 : 10;
   const recent = p && p.finished && Date.now() / 1000 - p.finished < linger;
   clearTimeout(state.hideProgress);
   if (!p || !(running || recent)) {
@@ -160,11 +166,12 @@ function renderProgress(p, running) {
   const overall = doneAll ? 1 : (idx + frac) / keys.length;
   $("progress-fill").style.width = `${Math.round(overall * 100)}%`;
   $("progress-title").textContent = p.error ? "Failed" : doneAll ? "Finished"
-    : p.job === "refine" ? "Refining the graph" : "Building the graph";
+    : { refine: "Refining the graph", update: "Checking for new work" }[p.job] || "Building the graph";
   const elapsed = (p.finished || Date.now() / 1000) - p.started;
   $("progress-time").textContent = fmtTime(Math.max(0, elapsed));
   $("progress-label").textContent = p.error || p.label || "";
   $("progress-count").textContent = !p.error && p.total ? `${p.done} / ${p.total}` : "";
+  $("progress-warnings").innerHTML = (p.warnings || []).map((w) => `<li>${esc(w)}</li>`).join("");
 }
 
 /* ---------------------------------------------------------------- graph */
@@ -181,6 +188,7 @@ async function refreshGraph(keepLayout = false) {
   state.graph = g;
   $("empty").classList.toggle("hidden", g.nodes.some((n) => n.kind === "paper"));
   renderQuestions(g);
+  renderNew(g);
   if (keepLayout && prevCount === g.nodes.length + g.edges.length) return;
   const els = [
     ...g.nodes.map((n) => ({ group: "nodes", data: { ...n, short: shortLabel(n),
@@ -331,6 +339,13 @@ async function showNode(id) {
   highlight([id, ...n.neighbors.map((nb) => nb.node)]);
 }
 
+function renderNew(g) {
+  const fresh = g.nodes.filter((n) => n.new);
+  $("new-box").classList.toggle("hidden", !fresh.length);
+  $("new-title").textContent = state.latestNew?.since ? `New since ${state.latestNew.since}` : "New";
+  $("new-papers").innerHTML = fresh.map((n) => `<li data-node="${esc(n.id)}">${esc(n.label)}</li>`).join("");
+}
+
 function renderQuestions(g) {
   $("questions").innerHTML = g.nodes.filter((n) => n.kind === "question")
     .map((q) => `<li data-node="${esc(q.id)}">${esc(q.label)}</li>`).join("") || `<li class="muted">None yet</li>`;
@@ -393,6 +408,17 @@ document.addEventListener("click", (e) => {
 });
 $("project-select").addEventListener("change", (e) => openProject(e.target.value));
 $("new-btn").addEventListener("click", showStart);
+$("update-btn").addEventListener("click", async () => {
+  if (!state.project) return;
+  try {
+    await api(`/api/projects/${state.project}/update`, { method: "POST" });
+    state.running = true;
+    $("log-box").open = true;
+    await poll();
+  } catch (e) {
+    $("status").textContent = `Error: ${e.message}`;
+  }
+});
 $("delete-btn").addEventListener("click", async () => {
   if (!state.project) return;
   const name = $("project-select").selectedOptions[0]?.textContent || `#${state.project}`;

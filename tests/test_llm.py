@@ -183,7 +183,7 @@ async def test_claude_code_backend_is_locked_down(monkeypatch):
     assert {"--strict-mcp-config", "--disable-slash-commands", "--no-session-persistence"} <= set(args)
     assert args[args.index("--model") + 1] == "opus"
     assert args[args.index("--setting-sources") + 1] == ""  # no CLAUDE.md, memory, hooks or plugins
-    assert args[args.index("--effort") + 1] == "low"
+    assert args[args.index("--effort") + 1] == "medium"
     assert captured["stdin"] == "hello" and "rf-claude-" in captured["cwd"]
     assert not Path(captured["cwd"]).exists()  # throwaway working dir is removed
 
@@ -217,7 +217,7 @@ async def test_codex_backend(monkeypatch):
     assert args[args.index("--sandbox") + 1] == "read-only" and args[-1] == "-"
     assert captured["stdin"] == "USER" and captured["instructions"] == "SYS"  # system prompt replaces Codex's
     assert {"--ignore-user-config", "--ephemeral", "--json"} <= set(args)
-    assert 'model_reasoning_effort="low"' in args and args[args.index("--model") + 1] == "gpt-6-luna"
+    assert 'model_reasoning_effort="medium"' in args and args[args.index("--model") + 1] == "gpt-6-luna"
 
 
 async def test_cli_backends_default_to_a_small_model_and_can_load_user_config(monkeypatch):

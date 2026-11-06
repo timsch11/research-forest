@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
+import datetime
 import math
 import re
 import time
 from collections import Counter, defaultdict
-from typing import Callable
+from collections.abc import Callable
 
 from .config import Settings
 from .llm import LLM, make_llm
@@ -17,7 +18,7 @@ from .pipeline.synthesize import synthesize as run_synthesis
 from .prompts import SYSTEM, answer_prompt, clip, refine_prompt
 from .sources.fulltext import PassageFinder
 from .sources.semantic_scholar import SemanticScholar
-from .store import Store
+from .store import LAST_CHECKED, LATEST_NEW, Store
 
 CORE_FRACTION = 0.6  # share of the paper budget filled from search before snowballing
 
@@ -29,6 +30,8 @@ JOB_STAGES = {
     "build": [("scope", "Scope"), ("search", "Search"), ("screen", "Screening"), ("snowball", "Snowball"),
               *PROCESS_STAGES],
     "refine": [("plan", "Plan"), ("apply", "Apply"), *PROCESS_STAGES],
+    "update": [("search", "New papers"), ("followups", "Follow-ups"),
+               *(s for s in PROCESS_STAGES if s[0] not in ("baselines", "followups"))],
 }
 
 
@@ -93,11 +96,50 @@ class Forest:
             await self.process(project, synthesize=True, baseline_papers=self.settings.baseline_papers,
                                followup_papers=self.settings.followup_papers)
             ctx.log(self._summary(project, started))
+            self.store.set_meta(project, LAST_CHECKED, datetime.date.today().isoformat())
             self.store.set_status(project, "ready")
         except BaseException:
             self.store.set_status(project, "error")
             raise
         return project
+
+    def last_checked(self, project: int) -> str:
+        """Date of the last build or check for new work (older projects: their creation date)."""
+        if checked := self.store.meta(project, LAST_CHECKED):
+            return checked
+        created = (self.store.project(project) or {}).get("created") or time.time()
+        return datetime.date.fromtimestamp(created).isoformat()
+
+    async def update(self, project: int) -> list[str]:
+        """Check for work published since the last check: new search results for the scope's queries
+        and recent influential citations of the key papers. A snapshot is taken first (undo).
+        Returns the ids of the papers added; they are marked as new in the graph."""
+        ctx, started = self.ctx(project), time.monotonic()
+        since, today = self.last_checked(project), datetime.date.today().isoformat()
+        self._begin(project, "update")
+        self.store.snapshot(project, f"check for new work since {since}")
+        self.store.set_status(project, "updating")
+        try:
+            before = {r.paper.id for r in self.store.papers(project, "included")}
+            budget = max(1, self.settings.update_papers)
+            ctx.stage("search", f"Searching for papers published since {since}")
+            hits = await discover.search(ctx, self.store.scope(project).search_queries, since=since)
+            await discover.screen(ctx, hits)
+            added = discover.select(ctx, max(1, budget // 2), hits, velocity=False)  # too new to be cited
+            ctx.stage("followups", f"Looking for work since {since} that builds on key papers")
+            added += await followups.find(ctx, budget - len(added), year_min=since)
+            await self.process(project, synthesize=bool(added))
+            new = sorted({r.paper.id for r in self.store.papers(project, "included")} - before)
+            self.store.set_meta(project, LATEST_NEW, {"since": since, "papers": new})
+            self.store.set_meta(project, LAST_CHECKED, today)
+            ctx.log(f"Found {len(new)} new papers published since {since}" if new
+                    else f"No new relevant papers since {since}")
+            ctx.log(self._summary(project, started))
+            self.store.set_status(project, "ready")
+        except BaseException:
+            self.store.set_status(project, "error")
+            raise
+        return new
 
     async def _fetch_new_links(self, ctx: Ctx) -> None:
         todo = [r.paper.id for r in self.store.papers(ctx.project, "included") if not r.refs_fetched]

@@ -56,8 +56,8 @@ class Backend(ABC):
     async def generate(self, system: str, user: str, schema: dict, schema_name: str) -> str | dict | Reply:
         ...
 
-    async def aclose(self) -> None:  # pragma: no cover - optional hook
-        pass
+    async def aclose(self) -> None:  # noqa: B027 - optional hook  # pragma: no cover
+        return None
 
 
 def strict_schema(model: type[BaseModel]) -> dict:
@@ -133,7 +133,7 @@ class LLM:
     """High-level client: ``await llm.json(Schema, system, user) -> Schema``."""
 
     def __init__(self, backend: Backend, *, concurrency: int = 4, retries: int = 2,
-                 cache: JsonCache | None = None, call_log: "CallLog | None" = None):
+                 cache: JsonCache | None = None, call_log: CallLog | None = None):
         self.backend = backend
         self.retries = retries
         self.cache = cache

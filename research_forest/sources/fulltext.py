@@ -108,7 +108,7 @@ async def run_worker(urls: list[str], queries: dict[str, str], settings: Setting
         try:
             out, err = await asyncio.wait_for(proc.communicate(json.dumps(request).encode()),
                                               settings.fulltext_timeout + WORKER_GRACE)
-        except asyncio.TimeoutError:
+        except TimeoutError:
             proc.kill()
             await proc.wait()
             return {"source": None, "passages": {}, "error": "worker timed out"}

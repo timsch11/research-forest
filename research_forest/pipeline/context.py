@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 import logging
+from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import Callable
 
 from ..config import Settings
 from ..llm import LLM
@@ -34,6 +34,16 @@ class Ctx:
         log.info("[project %d] %s", self.project, msg)
         if self.on_log:
             self.on_log(self.project, msg)
+
+    def warn(self, msg: str) -> None:
+        """Something the user should know about the result (e.g. lost searches): logged and kept
+        on the progress card until the next job."""
+        self.log(f"warning: {msg}")
+        if self.on_progress:
+            self.on_progress(self.project, {"warning": msg})
+
+    def s2_hint(self) -> str:
+        return "" if self.settings.s2_api_key else " Setting S2_API_KEY raises Semantic Scholar's rate limit."
 
     # Progress: the engine opens a stage; the step inside it declares its units of work and ticks.
 

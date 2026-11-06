@@ -47,12 +47,14 @@ CONFIG_KEYS: dict[tuple[str, str], tuple[str, type]] = {
     ("pipeline", "followup_papers"): ("followup_papers", int),
     ("pipeline", "followup_seeds"): ("followup_seeds", int),
     ("pipeline", "followup_years"): ("followup_years", int),
+    ("pipeline", "update_papers"): ("update_papers", int),
     ("fulltext", "enabled"): ("fulltext_enabled", bool),
     ("fulltext", "max_mb"): ("fulltext_max_mb", int),
     ("fulltext", "timeout"): ("fulltext_timeout", float),
     ("fulltext", "memory_mb"): ("fulltext_mem_mb", int),
     ("fulltext", "allow_private"): ("fulltext_allow_private", bool),
     ("fulltext", "prefer_html"): ("fulltext_prefer_html", bool),
+    ("fulltext", "single_pass"): ("fulltext_single_pass", bool),
     ("fulltext", "always_fill_datasets"): ("fulltext_always_fill_datasets", bool),
     ("fulltext", "limitation_sections"): ("fulltext_limitation_sections", bool),
     ("server", "max_jobs"): ("max_jobs", int),
@@ -111,7 +113,7 @@ def read_config(path: str | Path) -> dict[str, Any]:
             values[field_name] = value
     if values.get("backend", "openai") not in BACKENDS:
         raise ConfigError(f"{path}: [llm] backend must be one of {', '.join(BACKENDS)}")
-    if values.get("llm_effort", "low") not in EFFORTS:
+    if values.get("llm_effort", "medium") not in EFFORTS:
         raise ConfigError(f"{path}: [llm] effort must be one of {', '.join(repr(e) for e in EFFORTS)}")
     return values
 
@@ -127,7 +129,7 @@ class Settings:
     llm_timeout: float = 300.0
     llm_retries: int = 2
     cache_llm: bool = True
-    llm_effort: str = "low"  # reasoning effort for the claude-code and codex CLIs ("" = the CLI's default)
+    llm_effort: str = "medium"  # reasoning effort for the claude-code and codex CLIs ("" = the CLI's default)
     cli_user_config: bool = False  # let the CLIs load your own config (CLAUDE.md, hooks, plugins, config.toml)
 
     # --- Semantic Scholar ---
@@ -142,6 +144,7 @@ class Settings:
     followup_papers: int = 6  # recent papers added because they cite key graph papers influentially (0 disables)
     followup_seeds: int = 8  # key graph papers whose recent influential citations are scanned (one request each)
     followup_years: int = 2  # how recent a follow-up must be, in publication years (2 = this year and last)
+    update_papers: int = 10  # most papers one "check for new work" adds (half from search, the rest follow-ups)
 
     # --- sandboxed full-text worker ---
     fulltext_enabled: bool = True
@@ -151,6 +154,7 @@ class Settings:
     fulltext_allow_private: bool = False  # SSRF guard; only disable for local testing
     fulltext_prefer_html: bool = True  # try arXiv's HTML rendering before PDFs (cleaner text and tables)
     fulltext_always_fill_datasets: bool = True  # gap-fill datasets for every paper, not only thin results
+    fulltext_single_pass: bool = False  # with always_fill_datasets: read the full text first, extract in one call
     fulltext_limitation_sections: bool = True  # read Limitations/Conclusion/Discussion sections when gap filling
 
     # --- web server ---
@@ -164,7 +168,7 @@ class Settings:
     llm_log_file: str = "research-forest-llm.jsonl"
 
     @classmethod
-    def load(cls, config: str | Path | None = None, env_file: str | Path = ".env", **overrides: Any) -> "Settings":
+    def load(cls, config: str | Path | None = None, env_file: str | Path = ".env", **overrides: Any) -> Settings:
         """Defaults < config file < ``overrides`` (CLI flags); secrets from ``.env`` < environment.
 
         ``config=None`` uses ``research-forest.toml`` if it exists; an explicit path must exist.

@@ -34,7 +34,7 @@ All settings are optional.
 | `timeout` | `300` | Seconds per call |
 | `retries` | `2` | Retries after invalid output or transient errors |
 | `cache` | `true` | Cache responses in `<db_path>.llmcache` |
-| `effort` | `"low"` | Reasoning effort for `claude-code` and `codex`: `low`, `medium`, `high`, `xhigh` or `max`. `""` uses the CLI's default. Extraction doesn't need deep reasoning, and thinking tokens are usually the largest part of a call's output |
+| `effort` | `"medium"` | Reasoning effort for `claude-code` and `codex`: `low`, `medium`, `high`, `xhigh` or `max`. `""` uses the CLI's default. On the gold set, `low` halved thinking tokens but cost the same overall and scored 2–4 points lower on every metric |
 | `cli_user_config` | `false` | Let `claude` and `codex` load your own setup. By default, Claude Code runs with `--setting-sources ""` (no CLAUDE.md, memory, hooks or plugins) and Codex with `--ignore-user-config` (no `config.toml`, so none of its MCP servers, model or effort). Otherwise all of that is sent along with every call. Turn this on only if your login depends on it, e.g. an `apiKeyHelper` or proxy set in `~/.claude/settings.json` |
 
 ### `[semantic_scholar]`
@@ -54,6 +54,7 @@ All settings are optional.
 | `followup_papers` | `6` | Add up to this many recent papers that cite key graph papers influentially (0 turns it off) |
 | `followup_seeds` | `8` | Number of key graph papers whose recent citations are scanned, at one Semantic Scholar request each |
 | `followup_years` | `2` | How recent a follow-up must be, in publication years (2 means this year and last) |
+| `update_papers` | `10` | Most papers one *check for new work* adds: up to half from search, the rest follow-ups |
 
 ### `[fulltext]`
 
@@ -66,7 +67,8 @@ All settings are optional.
 | `allow_private` | `false` | Disables the SSRF guard. **Local testing only.** |
 | `prefer_html` | `true` | Try arXiv's HTML rendering before PDFs (cleaner text, readable tables) |
 | `limitation_sections` | `true` | When the full text is read, also take limitations from its Limitations, Conclusion, Discussion and Future-work sections |
-| `always_fill_datasets` | `true` | Search the full text for datasets for every paper (+1 small LLM call each). `false` does this only when fewer than 3 datasets were found |
+| `always_fill_datasets` | `true` | Search the full text for datasets for every paper. `false` does this only when fewer than 3 datasets were found |
+| `single_pass` | `false` | With `always_fill_datasets`: read the full text *before* extracting, so each paper takes one extraction call instead of an extraction plus a gap-fill call (a gap-fill call is still made for a field that came back empty without full-text evidence). On 10 gold papers this cut tokens per paper by about a third and the estimated cost by about 25%, but found fewer limitations (recall 67% → 56%) and slightly fewer datasets (95% → 93%), so it is off by default |
 
 ### `[server]` and `[storage]`
 

@@ -52,8 +52,10 @@ flowchart LR
    text is searched for datasets for every paper (`always_fill_datasets`). This lifted dataset
    recall on the gold set from 68% to 82%. Limitations and methods are gap-filled when the model
    flags them as missing or returns them empty. Passages come from the paper's text (see
-   [below](#gap-filling)). A small follow-up call fills *only* those fields from the passages,
-   and the results are merged in.
+   [below](#gap-filling)). Extraction runs on the abstract first and a small follow-up call
+   fills the gaps from the passages; the two results are merged. With `single_pass` the full
+   text is read *before* extraction instead and everything goes into one call: about 25%
+   cheaper, but it finds fewer limitations (see [configuration](configuration.md#fulltext)).
 7. **Baselines.** Extraction and gap filling also return the paper's *baselines*: the methods
    it compares against, mostly read from the main results tables. Each one is resolved to a
    paper without an LLM, trying these in order:
@@ -105,6 +107,19 @@ flowchart LR
 11. **Synthesise.** Limitations from all papers are grouped into 5–15 **themes**. Each theme is
    linked to the papers that have it and to the papers that address it. From these themes come
    5–12 **open research questions**, each linked to its motivating themes and relevant papers.
+
+## Keeping a landscape current
+
+**Check for new work** (`research-forest update ID`) asks Semantic Scholar only for papers
+published since the last check, which is recorded at every build and check:
+
+- the scope's search queries again, restricted by publication date;
+- the influential citations of the key papers, as in [follow-ups](#pipeline), from that date.
+
+Candidates are screened and ranked without citation counts, since new papers have none yet. Up
+to `update_papers` are added and analysed, lineage and open questions are updated, and the new
+papers are listed and outlined in the UI until the next check. A check takes a snapshot first,
+so Undo reverts it, including the date of the last check.
 
 ## Lineage and change types
 
@@ -225,10 +240,11 @@ The CLI backends are agents with a fixed prompt of their own, sent with every ca
 | `claude-code` | About 3.4k tokens, mostly prompt-cache reads, re-read on each of its 2 turns (`--json-schema` returns the answer through a tool) | Skips your own setup (`--setting-sources ""`): a 2k-word `~/.claude/CLAUDE.md` alone otherwise added about 19k input tokens per call |
 | `codex` | About 9k tokens of built-in tools, skills and agent text, plus your global `AGENTS.md` | Replaces Codex's 22k-character agent instructions with our system prompt, and skips `~/.codex/config.toml` (`--ignore-user-config`) |
 
-Both use a small model by default (`haiku`, `gpt-6-luna`) and `effort = "low"`, because
-thinking tokens otherwise outweigh the answer: about 1.2k thinking tokens per extraction call on
-Haiku at default effort, against about 350 tokens of JSON. `research-forest llm-log` shows the
-tokens each backend reported.
+Both use a small model by default (`haiku`, `gpt-6-luna`) with `effort = "medium"`. Thinking
+tokens often outweigh the answer (about 1.2k per extraction call on Haiku, against about 350
+tokens of JSON), but on the gold set `low` halved them without lowering the total: it cost the
+same and scored 2–4 points lower on datasets and limitations. `research-forest llm-log` shows
+the tokens each backend reported.
 
 ## Structured output
 

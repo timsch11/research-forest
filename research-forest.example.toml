@@ -11,7 +11,7 @@ concurrency = 4               # parallel LLM calls
 timeout = 300                 # seconds per call
 retries = 2                   # retries after invalid output or transient errors
 cache = true                  # cache responses in <db_path>.llmcache
-effort = "low"                # claude-code/codex reasoning effort: low, medium, high, xhigh, max ("" = CLI default)
+effort = "medium"             # claude-code/codex reasoning effort: low, medium, high, xhigh, max ("" = CLI default)
 cli_user_config = false       # let claude/codex load your own setup (CLAUDE.md, hooks, plugins, config.toml)
 
 [semantic_scholar]
@@ -25,6 +25,7 @@ baseline_papers = 8           # add up to N papers that graph papers compare aga
 followup_papers = 6           # add up to N recent papers that cite key graph papers influentially (0 = off)
 followup_seeds = 8            # key graph papers scanned for recent influential citations (one request each)
 followup_years = 2            # how recent follow-ups must be (2 = this year and last)
+update_papers = 10            # most papers one "check for new work" adds (half search, half follow-ups)
 
 [fulltext]
 enabled = true                # sandboxed download + BM25 gap filling
@@ -34,6 +35,7 @@ memory_mb = 1024              # worker memory limit (POSIX)
 allow_private = false         # disables the SSRF guard — local testing only
 prefer_html = true            # try arXiv's HTML rendering before the PDF (cleaner text, readable tables)
 always_fill_datasets = true   # search the full text for datasets for every paper (+1 small LLM call each);
+single_pass = false           # one extraction call per paper instead of two: ~25% cheaper, fewer limitations found
                               # false = only when fewer than 3 datasets were found
 limitation_sections = true    # when the full text is read, also take limitations from its Limitations /
                               # Conclusion / Discussion sections

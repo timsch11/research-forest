@@ -17,7 +17,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-dev = ["pytest>=8", "pytest-asyncio>=0.23", "respx>=0.21"]
+dev = ["pytest>=8", "pytest-asyncio>=0.23", "respx>=0.21", "ruff>=0.6"]
 
 [project.scripts]
 research-forest = "research_forest.cli:main"
@@ -29,3 +29,17 @@ packages = ["research_forest"]
 asyncio_mode = "auto"
 testpaths = ["tests"]
 asyncio_default_fixture_loop_scope = "function"
+
+[tool.ruff]
+line-length = 130
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B", "SIM"]
+ignore = ["SIM108", "SIM905", "E741", "B905"]  # ternaries aren't always clearer; `l` for links/lines is fine; zip() is used on equal lengths
+
+[tool.ruff.lint.per-file-ignores]
+"scripts/demo.py" = ["E501"]  # hand-written data tables
+
+[tool.ruff.lint.isort]
+known-first-party = ["research_forest", "conftest"]

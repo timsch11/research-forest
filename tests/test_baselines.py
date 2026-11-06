@@ -2,7 +2,7 @@
 
 import pytest
 
-from conftest import FakeBackend, make_forest, op
+from conftest import make_forest
 from research_forest.models import CitationLink, Extraction, Paper
 from research_forest.pipeline import baselines
 from research_forest.pipeline.baselines import match_reference, resolve, title_head
@@ -179,6 +179,7 @@ def test_baseline_scores():
 
 async def test_evaluate_reports_baselines(settings, fake_backend, tmp_path):
     import json
+
     from research_forest.evaluation import evaluate, format_report
     gold = tmp_path / "gold.json"
     gold.write_text(json.dumps({"papers": [

@@ -18,9 +18,9 @@ import logging
 import secrets
 import time
 from collections import defaultdict, deque
+from collections.abc import Awaitable, Callable
 from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import Awaitable, Callable
 from urllib.parse import urlsplit
 
 from fastapi import FastAPI, HTTPException, Query, Request
@@ -30,7 +30,7 @@ from pydantic import BaseModel, Field
 
 from ..config import Settings
 from ..engine import Forest
-from ..store import valid_node
+from ..store import LATEST_NEW, valid_node
 
 STATIC = Path(__file__).with_name("static")
 COOKIE = "rf_token"
@@ -64,7 +64,10 @@ class Jobs:
         """Merge a progress event: {"job", "plan"} starts a job; {"stage", "label", "done", "total"} updates it."""
         if "plan" in event:
             self.progress[project] = {**event, "started": time.time(), "stage": None, "label": "", "done": 0,
-                                      "total": 0, "finished": None, "error": None}
+                                      "total": 0, "finished": None, "error": None, "warnings": []}
+        elif "warning" in event:
+            if project in self.progress and len(warnings := self.progress[project]["warnings"]) < 10:
+                warnings.append(str(event["warning"])[:500])
         elif project in self.progress:
             self.progress[project].update(event)
 
@@ -203,7 +206,8 @@ def create_app(settings: Settings, forest: Forest | None = None, token: str | No
     async def project(pid: int, since: float = 0.0):
         p = project_or_404(pid)
         return {**p, "running": jobs.running(pid), "log": [l for l in jobs.logs[pid] if l["t"] > since],
-                "snapshots": store.snapshots(pid), "progress": jobs.progress.get(pid)}
+                "snapshots": store.snapshots(pid), "progress": jobs.progress.get(pid),
+                "last_checked": forest.last_checked(pid), "latest_new": store.meta(pid, LATEST_NEW, {})}
 
     @app.get("/api/projects/{pid}/graph")
     async def graph(pid: int):
@@ -225,6 +229,12 @@ def create_app(settings: Settings, forest: Forest | None = None, token: str | No
     async def refine(pid: int, req: TextRequest):
         project_or_404(pid)
         jobs.start(pid, lambda: forest.refine(pid, req.text))
+        return {"started": True}
+
+    @app.post("/api/projects/{pid}/update")
+    async def update(pid: int):
+        project_or_404(pid)
+        jobs.start(pid, lambda: forest.update(pid))
         return {"started": True}
 
     @app.post("/api/projects/{pid}/ask")

@@ -28,10 +28,10 @@ async def _run(args: list[str], stdin: str, cwd: str, timeout: float) -> str:
         stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
     try:
         out, err = await asyncio.wait_for(proc.communicate(stdin.encode()), timeout)
-    except asyncio.TimeoutError:
+    except TimeoutError:
         proc.kill()
         await proc.wait()
-        raise TransientLLMError(f"{args[0]} timed out after {timeout}s")
+        raise TransientLLMError(f"{args[0]} timed out after {timeout}s") from None
     if proc.returncode != 0:
         raise TransientLLMError(f"{args[0]} exited {proc.returncode}: {err.decode(errors='replace')[-500:]}")
     return out.decode()
@@ -49,7 +49,7 @@ class ClaudeCodeBackend(Backend):
     DEFAULT_MODEL = "haiku"
 
     def __init__(self, model: str | None = None, timeout: float = 300.0, binary: str = "claude", *,
-                 effort: str = "low", user_config: bool = False):
+                 effort: str = "medium", user_config: bool = False):
         self.model, self.timeout, self._bin = model or self.DEFAULT_MODEL, timeout, _require(binary)
         self.effort, self.user_config = effort, user_config
 
@@ -98,7 +98,7 @@ class CodexBackend(Backend):
     DEFAULT_MODEL = "gpt-6-luna"
 
     def __init__(self, model: str | None = None, timeout: float = 300.0, binary: str = "codex", *,
-                 effort: str = "low", user_config: bool = False):
+                 effort: str = "medium", user_config: bool = False):
         self.model, self.timeout, self._bin = model or self.DEFAULT_MODEL, timeout, _require(binary)
         self.effort, self.user_config = effort, user_config
 

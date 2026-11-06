@@ -6,7 +6,8 @@ import asyncio
 import logging
 import re
 import time
-from typing import Iterable, Literal
+from collections.abc import Iterable
+from typing import Literal
 
 import httpx
 
@@ -77,10 +78,14 @@ class SemanticScholar:
 
     # ----------------------------------------------------------- queries ----
 
-    async def search(self, query: str, limit: int = 40, year_min: int | None = None) -> list[Paper]:
+    async def search(self, query: str, limit: int = 40, year_min: int | None = None,
+                     since: str | None = None) -> list[Paper]:
+        """Keyword search; ``since`` (YYYY-MM-DD) keeps only papers published on or after that date."""
         params = {"query": query, "limit": min(limit, 100), "fields": PAPER_FIELDS}
         if year_min:
             params["year"] = f"{year_min}-"
+        if since:
+            params["publicationDateOrYear"] = f"{since}:"
         data = await self._request("GET", "/paper/search", params=params)
         return [p for d in data.get("data", []) if (p := to_paper(d))]
 
@@ -98,11 +103,12 @@ class SemanticScholar:
         return out
 
     async def links(self, paper_id: str, direction: Literal["references", "citations"], limit: int = 500,
-                    year_min: int | None = None, influential_only: bool = False) -> list[tuple[Paper, CitationLink]]:
+                    year_min: int | str | None = None,
+                    influential_only: bool = False) -> list[tuple[Paper, CitationLink]]:
         """References (papers this one cites) or citations (papers citing it), with citation contexts.
 
         Citations come newest first, so ``limit`` bounds how far back they reach; ``year_min``
-        restricts them further. The API can't filter by ``isInfluential``; ``influential_only``
+        (a year or a YYYY-MM-DD date) restricts them further. The API can't filter by ``isInfluential``; ``influential_only``
         drops the rest here.
         """
         params: dict = {"fields": EDGE_FIELDS, "limit": min(limit, 1000)}

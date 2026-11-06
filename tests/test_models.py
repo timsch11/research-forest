@@ -20,6 +20,7 @@ def walk(node):
 def _all_models(model, seen=None):
     """The model and every nested BaseModel reachable from its fields."""
     import typing
+
     from pydantic import BaseModel
     seen = seen if seen is not None else {}
     if model.__name__ not in seen:
