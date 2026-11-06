@@ -25,6 +25,7 @@ baseline_papers = 8           # add up to N papers that graph papers compare aga
 followup_papers = 6           # add up to N recent papers that cite key graph papers influentially (0 = off)
 followup_seeds = 8            # key graph papers scanned for recent influential citations (one request each)
 followup_years = 2            # how recent follow-ups must be (2 = this year and last)
+update_papers = 10            # most papers one "check for new work" adds (half search, half follow-ups)
 
 [fulltext]
 enabled = true                # sandboxed download + BM25 gap filling

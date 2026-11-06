@@ -35,9 +35,10 @@ def seeds(ctx: Ctx, count: int) -> list[str]:
     return [n[2:] for n in ranked[:count]]
 
 
-async def find(ctx: Ctx, limit: int, seed_ids: list[str] | None = None, year_min: int | None = None) -> list[str]:
+async def find(ctx: Ctx, limit: int, seed_ids: list[str] | None = None, year_min: int | str | None = None) -> list[str]:
     """Add up to ``limit`` recent papers that influentially cite graph papers (``seed_ids``, by default
-    the key papers). ``year_min`` defaults to the last ``followup_years``. Returns the added ids."""
+    the key papers). ``year_min`` (a year or a YYYY-MM-DD date) defaults to the last
+    ``followup_years``. Returns the added ids."""
     if limit <= 0:
         return []
     seed_ids = seed_ids or seeds(ctx, ctx.settings.followup_seeds)

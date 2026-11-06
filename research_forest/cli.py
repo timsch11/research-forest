@@ -66,6 +66,8 @@ def main(argv: list[str] | None = None) -> None:
     s.add_argument("project", type=int)
     s.add_argument("query")
     sub.add_parser("list", help="list landscapes")
+    nw = sub.add_parser("update", help="check a landscape for work published since the last check")
+    nw.add_argument("project", type=int)
     u = sub.add_parser("undo", help="undo the last refinement")
     u.add_argument("project", type=int)
     d = sub.add_parser("delete", help="delete a landscape and all its data")
@@ -156,6 +158,11 @@ def main(argv: list[str] | None = None) -> None:
             case "list":
                 for proj in forest.store.projects():
                     print(f"{proj['id']:>3}  {proj['status']:<9} {proj['title'] or proj['prompt']}")
+            case "update":
+                since = forest.last_checked(args.project)
+                new = await forest.update(args.project)
+                titles = {r.paper.id: r.paper.title for r in forest.store.papers(args.project, ids=new)}
+                print(f"{len(new)} new papers since {since}" + "".join(f"\n  {titles[i]}" for i in new))
             case "undo":
                 label = forest.undo(args.project)
                 print(f"undid: {label}" if label else "nothing to undo")

@@ -30,7 +30,7 @@ from pydantic import BaseModel, Field
 
 from ..config import Settings
 from ..engine import Forest
-from ..store import valid_node
+from ..store import LATEST_NEW, valid_node
 
 STATIC = Path(__file__).with_name("static")
 COOKIE = "rf_token"
@@ -206,7 +206,8 @@ def create_app(settings: Settings, forest: Forest | None = None, token: str | No
     async def project(pid: int, since: float = 0.0):
         p = project_or_404(pid)
         return {**p, "running": jobs.running(pid), "log": [l for l in jobs.logs[pid] if l["t"] > since],
-                "snapshots": store.snapshots(pid), "progress": jobs.progress.get(pid)}
+                "snapshots": store.snapshots(pid), "progress": jobs.progress.get(pid),
+                "last_checked": forest.last_checked(pid), "latest_new": store.meta(pid, LATEST_NEW, {})}
 
     @app.get("/api/projects/{pid}/graph")
     async def graph(pid: int):
@@ -228,6 +229,12 @@ def create_app(settings: Settings, forest: Forest | None = None, token: str | No
     async def refine(pid: int, req: TextRequest):
         project_or_404(pid)
         jobs.start(pid, lambda: forest.refine(pid, req.text))
+        return {"started": True}
+
+    @app.post("/api/projects/{pid}/update")
+    async def update(pid: int):
+        project_or_404(pid)
+        jobs.start(pid, lambda: forest.update(pid))
         return {"started": True}
 
     @app.post("/api/projects/{pid}/ask")

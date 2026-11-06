@@ -54,6 +54,7 @@ All settings are optional.
 | `followup_papers` | `6` | Add up to this many recent papers that cite key graph papers influentially (0 turns it off) |
 | `followup_seeds` | `8` | Number of key graph papers whose recent citations are scanned, at one Semantic Scholar request each |
 | `followup_years` | `2` | How recent a follow-up must be, in publication years (2 means this year and last) |
+| `update_papers` | `10` | Most papers one *check for new work* adds: up to half from search, the rest follow-ups |
 
 ### `[fulltext]`
 

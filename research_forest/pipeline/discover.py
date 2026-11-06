@@ -30,7 +30,7 @@ async def rescope(ctx: Ctx, instruction: str) -> Scope:
 
 
 async def search(ctx: Ctx, queries: list[str], seeds: Iterable[str] = (), per_query: int = 40,
-                 year_min: int | None = None) -> list[str]:
+                 year_min: int | None = None, since: str | None = None) -> list[str]:
     """Run keyword queries and title matches; store hits as candidates and return all hit ids."""
     seeds = list(seeds)
     ctx.work(len(queries) + len(seeds), f"Searching Semantic Scholar: {len(queries)} queries"
@@ -43,7 +43,7 @@ async def search(ctx: Ctx, queries: list[str], seeds: Iterable[str] = (), per_qu
             ctx.tick()
 
     def call(i: int):
-        return ctx.s2.search(queries[i], per_query, year_min) if i < len(queries) else \
+        return ctx.s2.search(queries[i], per_query, year_min, since) if i < len(queries) else \
             ctx.s2.match_title(seeds[i - len(queries)])
 
     results = list(await asyncio.gather(*(ticked(call(i)) for i in range(len(queries) + len(seeds))),

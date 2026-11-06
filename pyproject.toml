@@ -40,3 +40,6 @@ ignore = ["SIM108", "SIM905", "E741", "B905"]  # ternaries aren't always clearer
 
 [tool.ruff.lint.per-file-ignores]
 "scripts/demo.py" = ["E501"]  # hand-written data tables
+
+[tool.ruff.lint.isort]
+known-first-party = ["research_forest", "conftest"]

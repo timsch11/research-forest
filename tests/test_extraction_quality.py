@@ -4,8 +4,8 @@ import json
 from pathlib import Path
 
 import pytest
-from conftest import FakeBackend, make_forest
 
+from conftest import FakeBackend, make_forest
 from research_forest.evaluation import evaluate, format_report, matches, score_paper
 from research_forest.models import CitationLink, Extraction, Paper
 from research_forest.pipeline import discover

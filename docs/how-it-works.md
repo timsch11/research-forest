@@ -109,6 +109,19 @@ flowchart LR
    linked to the papers that have it and to the papers that address it. From these themes come
    5–12 **open research questions**, each linked to its motivating themes and relevant papers.
 
+## Keeping a landscape current
+
+**Check for new work** (`research-forest update ID`) asks Semantic Scholar only for papers
+published since the last check, which is recorded at every build and check:
+
+- the scope's search queries again, restricted by publication date;
+- the influential citations of the key papers, as in [follow-ups](#pipeline), from that date.
+
+Candidates are screened and ranked without citation counts, since new papers have none yet. Up
+to `update_papers` are added and analysed, lineage and open questions are updated, and the new
+papers are listed and outlined in the UI until the next check. A check takes a snapshot first,
+so Undo reverts it, including the date of the last check.
+
 ## Lineage and change types
 
 | Change type | Meaning |

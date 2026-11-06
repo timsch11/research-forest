@@ -1,8 +1,8 @@
 """Baseline relations: table citations, resolution to papers, linking, discovery and lineage hints."""
 
 import pytest
-from conftest import make_forest
 
+from conftest import make_forest
 from research_forest.models import CitationLink, Extraction, Paper
 from research_forest.pipeline import baselines
 from research_forest.pipeline.baselines import match_reference, resolve, title_head

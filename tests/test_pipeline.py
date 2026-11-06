@@ -1,8 +1,8 @@
 import re
 
 import pytest
-from conftest import OVERRIDES, FakeBackend, make_forest, op
 
+from conftest import OVERRIDES, FakeBackend, make_forest, op
 from research_forest.store import pid
 
 
@@ -419,7 +419,6 @@ async def test_refine_reports_progress(forest, fake_backend):
 
 async def test_llm_error_message_is_readable():
     from conftest import FakeBackend
-
     from research_forest.llm import LLM
     from research_forest.models import Scope
 
