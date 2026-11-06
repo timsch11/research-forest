@@ -246,6 +246,7 @@ def test_always_fill_datasets_flag():
 
 async def test_always_fill_datasets_runs_gap_fill_for_every_paper(settings, fake_backend):
     settings.fulltext_always_fill_datasets = True
+    settings.fulltext_single_pass = False  # two calls per paper: extraction, then gap fill
     f = make_forest(settings, fake_backend)
     project = await f.build("efficient attention")
     included = f.store.papers(project, "included")
@@ -271,11 +272,56 @@ async def test_limitation_sections_fill_limitations(settings, fake_backend, monk
     monkeypatch.setattr(fulltext, "run_worker", fake_worker)
     settings.fulltext_always_fill_datasets = True
     settings.fulltext_limitation_sections = True
+    settings.fulltext_single_pass = False
     f = make_forest(settings, fake_backend)
     await f.build("efficient attention")
     prompts_ = [u for n, u in fake_backend.calls if n == "GapFill"]
     assert prompts_ and all("limitations, conclusion and discussion sections" in u for u in prompts_)
     assert all("these fields: datasets, limitations" in u for u in prompts_)
+    await f.aclose()
+
+
+async def test_single_pass_reads_full_text_first_and_extracts_once(settings, fake_backend, monkeypatch):
+    from research_forest.sources import fulltext
+    asked = []
+
+    async def fake_worker(urls, queries, settings, top_k=4, tables=False, sections=False):
+        asked.append(set(queries))
+        return {"source": urls[0], "error": None, "passages": {"datasets": [{"text": "We pre-train on C4."}]},
+                "tables": ["Table 1: Results — columns: Model | PG-19 | LRA"] if tables else [],
+                "sections": ["6 Limitations: The method only supports English."] if sections else []}
+
+    monkeypatch.setattr(fulltext, "run_worker", fake_worker)
+    settings.fulltext_always_fill_datasets = True  # single_pass is on by default
+    f = make_forest(settings, fake_backend)
+    project = await f.build("efficient attention")
+    included = f.store.papers(project, "included")
+    extractions = [u for n, u in fake_backend.calls if n == "Extraction"]
+    assert len(extractions) == len(included) and not [n for n, _ in fake_backend.calls if n == "GapFill"]
+    # dataset passages (here: the mocked snippet search), tables and sections all in the one prompt
+    assert all("relevant to datasets" in u and "Table 1: Results" in u and "only supports English" in u
+               and "prefer it over the abstract" in u for u in extractions)
+    assert all(a == {"datasets", "datasets_training"} for a in asked)  # one read per paper, before extracting
+    assert all(r.extraction.limitations[0].source == "stated" for r in included)
+    await f.aclose()
+
+
+async def test_single_pass_gap_fills_only_fields_it_had_no_evidence_for(settings, fake_backend, monkeypatch):
+    from research_forest.sources import fulltext
+
+    async def fake_worker(urls, queries, settings, top_k=4, tables=False, sections=False):
+        return {"source": urls[0], "error": None, "passages": {k: [{"text": f"about {k}"}] for k in queries},
+                "tables": [], "sections": []}
+
+    monkeypatch.setattr(fulltext, "run_worker", fake_worker)
+    settings.fulltext_always_fill_datasets = True
+    original = fake_backend._extraction
+    fake_backend._extraction = lambda user, refs: {**original(user, refs), "limitations": []}  # nothing found
+    f = make_forest(settings, fake_backend)
+    project = await f.build("efficient attention")
+    fills = [u for n, u in fake_backend.calls if n == "GapFill"]
+    assert len(fills) == len(f.store.papers(project, "included"))
+    assert all("these fields: limitations." in u for u in fills)  # datasets were already covered
     await f.aclose()
 
 

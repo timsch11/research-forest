@@ -53,6 +53,7 @@ CONFIG_KEYS: dict[tuple[str, str], tuple[str, type]] = {
     ("fulltext", "memory_mb"): ("fulltext_mem_mb", int),
     ("fulltext", "allow_private"): ("fulltext_allow_private", bool),
     ("fulltext", "prefer_html"): ("fulltext_prefer_html", bool),
+    ("fulltext", "single_pass"): ("fulltext_single_pass", bool),
     ("fulltext", "always_fill_datasets"): ("fulltext_always_fill_datasets", bool),
     ("fulltext", "limitation_sections"): ("fulltext_limitation_sections", bool),
     ("server", "max_jobs"): ("max_jobs", int),
@@ -151,6 +152,7 @@ class Settings:
     fulltext_allow_private: bool = False  # SSRF guard; only disable for local testing
     fulltext_prefer_html: bool = True  # try arXiv's HTML rendering before PDFs (cleaner text and tables)
     fulltext_always_fill_datasets: bool = True  # gap-fill datasets for every paper, not only thin results
+    fulltext_single_pass: bool = True  # with always_fill_datasets: read the full text first, extract in one call
     fulltext_limitation_sections: bool = True  # read Limitations/Conclusion/Discussion sections when gap filling
 
     # --- web server ---

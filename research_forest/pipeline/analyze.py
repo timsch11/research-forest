@@ -137,6 +137,8 @@ async def extract(ctx: Ctx, recs: list[PaperRecord], deep: bool = False) -> Extr
     """
     contexts, own = citation_contexts(ctx)
     vocabulary = graph_vocabulary(ctx) if ctx.finder else {}
+    single_pass = bool(ctx.finder and not deep and ctx.settings.fulltext_always_fill_datasets
+                       and ctx.settings.fulltext_single_pass)
     ctx.work(len(recs), (f"Re-analysing {len(recs)} papers with full-text passages" if deep else
                          f"Extracting methods, datasets and limitations from {len(recs)} papers"))
     gap_filled = 0
@@ -147,31 +149,40 @@ async def extract(ctx: Ctx, recs: list[PaperRecord], deep: bool = False) -> Extr
         finally:
             ctx.tick()
 
+    async def read(r: PaperRecord, fields: list[str], terms: list[str]) -> dict[str, list[str]]:
+        passages = await ctx.finder.find(r.paper, fields, terms, vocabulary,
+                                         sections=ctx.settings.fulltext_limitation_sections)
+        # cited table labels (dicts) are only used to resolve baselines; they never enter a prompt
+        if table_refs := passages.pop("table_refs", None):
+            ctx.store.set_meta(ctx.project, f"table_refs:{r.paper.id}", table_refs)
+        if bibliography := passages.pop("bibliography", None):
+            ctx.store.set_meta(ctx.project, f"bibliography:{r.paper.id}", bibliography)
+        if any(looks_like_injection(t) for texts in passages.values() for t in texts):
+            ctx.log(f"warning: instruction-like text in full text of {r.paper.title[:80]!r} (treated as data)")
+        return passages
+
     async def analyse(r: PaperRecord) -> None:
         nonlocal gap_filled
         cites = contexts.get(r.node, [])
+        tried: set[str] = set()  # fields whose full-text evidence the extraction already had
         if deep and r.extraction is not None:
             ex = r.extraction
         else:
             if any(looks_like_injection(t) for t in (r.paper.title, r.paper.abstract, r.paper.tldr, *cites[:8])):
                 ctx.log(f"warning: instruction-like text in metadata of {r.paper.title[:80]!r} (treated as data)")
-            ex = await ctx.llm.json(Extraction, SYSTEM,
-                                    extract_prompt(r.paper, cites, own.get(r.node, [])[:3 * MAX_OWN_SENTENCES]))
-        fields = ALL_FIELDS if deep else gaps(ex, ctx.settings.fulltext_always_fill_datasets)
-        if fields and ctx.finder:
-            passages = await ctx.finder.find(r.paper, fields, ex.search_terms, vocabulary,
-                                             sections=ctx.settings.fulltext_limitation_sections)
-            # cited table labels (dicts) are only used to resolve baselines; they never enter a prompt
-            if table_refs := passages.pop("table_refs", None):
-                ctx.store.set_meta(ctx.project, f"table_refs:{r.paper.id}", table_refs)
-            if bibliography := passages.pop("bibliography", None):
-                ctx.store.set_meta(ctx.project, f"bibliography:{r.paper.id}", bibliography)
-            if any(looks_like_injection(t) for texts in passages.values() for t in texts):
-                ctx.log(f"warning: instruction-like text in full text of {r.paper.title[:80]!r} (treated as data)")
-            if passages:
-                fill = await ctx.llm.json(GapFill, SYSTEM, gapfill_prompt(r.paper, ex.contribution, passages))
-                ex = merge_gapfill(ex, fill, gapfill_fields(passages))
-                gap_filled += 1
+            passages = {}
+            if single_pass:  # read the full text first: one extraction call instead of extraction + gap fill
+                passages = await read(r, ["datasets"], [])
+                tried = {"datasets", *gapfill_fields(passages)}
+                gap_filled += bool(passages)
+            ex = await ctx.llm.json(Extraction, SYSTEM, extract_prompt(
+                r.paper, cites, own.get(r.node, [])[:3 * MAX_OWN_SENTENCES], passages))
+        always = ctx.settings.fulltext_always_fill_datasets and not single_pass
+        fields = ALL_FIELDS if deep else [f for f in gaps(ex, always) if f not in tried]
+        if fields and ctx.finder and (passages := await read(r, fields, ex.search_terms)):
+            fill = await ctx.llm.json(GapFill, SYSTEM, gapfill_prompt(r.paper, ex.contribution, passages))
+            ex = merge_gapfill(ex, fill, gapfill_fields(passages))
+            gap_filled += not tried
         apply_extraction(ctx, r.paper.id, ex)
 
     results = await asyncio.gather(*(one(r) for r in recs), return_exceptions=True)

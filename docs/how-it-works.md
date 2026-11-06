@@ -52,8 +52,11 @@ flowchart LR
    text is searched for datasets for every paper (`always_fill_datasets`). This lifted dataset
    recall on the gold set from 68% to 82%. Limitations and methods are gap-filled when the model
    flags them as missing or returns them empty. Passages come from the paper's text (see
-   [below](#gap-filling)). A small follow-up call fills *only* those fields from the passages,
-   and the results are merged in.
+   [below](#gap-filling)). With `single_pass` (the default) the full text is read *before*
+   extraction: dataset passages, table summaries and limitation sections go into the one
+   extraction call. A small follow-up call fills only fields that are still empty and had no
+   full-text evidence. Without it, extraction runs on the abstract first and a follow-up call
+   fills the gaps from the passages.
 7. **Baselines.** Extraction and gap filling also return the paper's *baselines*: the methods
    it compares against, mostly read from the main results tables. Each one is resolved to a
    paper without an LLM, trying these in order:

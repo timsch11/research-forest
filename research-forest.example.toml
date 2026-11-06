@@ -34,6 +34,7 @@ memory_mb = 1024              # worker memory limit (POSIX)
 allow_private = false         # disables the SSRF guard — local testing only
 prefer_html = true            # try arXiv's HTML rendering before the PDF (cleaner text, readable tables)
 always_fill_datasets = true   # search the full text for datasets for every paper (+1 small LLM call each);
+single_pass = true            # with always_fill_datasets: read the full text first and extract in one LLM call
                               # false = only when fewer than 3 datasets were found
 limitation_sections = true    # when the full text is read, also take limitations from its Limitations /
                               # Conclusion / Discussion sections

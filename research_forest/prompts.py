@@ -101,7 +101,18 @@ def _unique(texts, limit: int, chars: int) -> list[str]:
     return out
 
 
-def extract_prompt(p: Paper, contexts: list[str], own_sentences: list[str] = ()) -> str:
+PASSAGE_GUIDE = (
+    "datasets = evaluation benchmarks AND training or pre-training corpora (usage: training/evaluation/both); "
+    "table columns and row labels often name them. limitations = weaknesses the authors state (source: stated), "
+    "mainly from their limitations, conclusion and discussion sections; future work separately. baselines = other "
+    "methods/models the paper compares against in its results tables (row or column labels), by their usual short "
+    "name; not the paper's own method, its variants or ablations, and not datasets or metrics.")
+
+
+def extract_prompt(p: Paper, contexts: list[str], own_sentences: list[str] = (),
+                   passages: dict[str, list[str]] | None = None) -> str:
+    """Extraction from metadata and citation contexts; with ``passages`` (single-pass mode) the
+    full-text material is included too, so no separate gap-fill call is needed."""
     paper = [f"Title: {clip(p.title, 300)}", f"Year: {p.year or '?'}  Venue: {clip(p.venue, 120) or '?'}"]
     # The TL;DR summarises the abstract; send it only when there is no abstract.
     paper.append(f"Abstract: {clip(p.abstract, ABSTRACT_CHARS)}" if p.abstract else f"TL;DR: {clip(p.tldr, 600) or 'n/a'}")
@@ -122,7 +133,26 @@ def extract_prompt(p: Paper, contexts: list[str], own_sentences: list[str] = ())
         parts.append(data_block("sentences from this paper's own full text", (f"- {c}" for c in own)))
     if cites := _unique(contexts, MAX_CONTEXTS, CONTEXT_CHARS):
         parts.append(data_block("citation contexts: how other papers describe this work", (f"- {c}" for c in cites)))
+    if blocks := _passage_blocks(passages or {}):
+        parts[0] += (" Full-text material from the paper follows: use it too, and prefer it over the abstract for "
+                     "datasets, limitations and baselines. " + PASSAGE_GUIDE)
+        parts += blocks
     return "\n\n".join(parts)
+
+
+def _passage_blocks(passages: dict[str, list[str]]) -> list[str]:
+    parts = []
+    if tables := passages.get("tables"):
+        parts.append(data_block("table captions, column headers and row labels from the main paper",
+                                (f"- {t}" for t in _unique(tables, 15, 600))))
+    if sections := passages.get("limitation_sections"):
+        parts.append(data_block("the paper's limitations, conclusion and discussion sections",
+                                (f"- {t}" for t in _unique(sections, 3, 1800))))
+    for field, texts in passages.items():
+        if field not in GAPFILL_EXTRAS:
+            parts.append(data_block(f"full-text passages likely relevant to {sanitize(field, 20)}",
+                                    (f"- {t}" for t in _unique(texts, 8, 1200))))
+    return parts
 
 
 GAPFILL_EXTRAS = {"tables", "limitation_sections", "table_refs", "bibliography"}  # non-field keys of PassageFinder.find()
@@ -143,24 +173,9 @@ def gapfill_prompt(p: Paper, contribution: str, passages: dict[str, list[str]]) 
     fields = ", ".join(sanitize(f, 20) for f in gapfill_fields(passages))
     parts = [f"An earlier pass extracted this paper from its abstract. Using ONLY the full-text material below, "
              f"list the items for these fields: {fields}. Leave every other field empty. methods_used = existing "
-             "methods it builds on or compares against. datasets = evaluation benchmarks AND training or "
-             "pre-training corpora (usage: training/evaluation/both); table columns and row labels often name "
-             "them. limitations = weaknesses the authors state (source: stated), mainly from their limitations, "
-             "conclusion and discussion sections; future work separately. baselines = other methods/models the "
-             "paper compares against in its results tables (row or column labels), by their usual short name; "
-             "not the paper's own method, its variants or ablations, and not datasets or metrics.",
+             "methods it builds on or compares against. " + PASSAGE_GUIDE,
              data_block("paper", [f"Title: {clip(p.title, 300)}", f"Contribution: {clip(contribution, 400)}"])]
-    if tables := passages.get("tables"):
-        parts.append(data_block("table captions, column headers and row labels from the main paper",
-                                (f"- {t}" for t in _unique(tables, 15, 600))))
-    if sections := passages.get("limitation_sections"):
-        parts.append(data_block("the paper's limitations, conclusion and discussion sections",
-                                (f"- {t}" for t in _unique(sections, 3, 1800))))
-    for field, texts in passages.items():
-        if field not in GAPFILL_EXTRAS:
-            parts.append(data_block(f"full-text passages likely relevant to {sanitize(field, 20)}",
-                                    (f"- {t}" for t in _unique(texts, 8, 1200))))
-    return "\n\n".join(parts)
+    return "\n\n".join(parts + _passage_blocks(passages))
 
 
 def relate_prompt(anchor: Paper, anchor_contribution: str | None,

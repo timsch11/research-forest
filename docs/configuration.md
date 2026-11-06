@@ -66,7 +66,8 @@ All settings are optional.
 | `allow_private` | `false` | Disables the SSRF guard. **Local testing only.** |
 | `prefer_html` | `true` | Try arXiv's HTML rendering before PDFs (cleaner text, readable tables) |
 | `limitation_sections` | `true` | When the full text is read, also take limitations from its Limitations, Conclusion, Discussion and Future-work sections |
-| `always_fill_datasets` | `true` | Search the full text for datasets for every paper (+1 small LLM call each). `false` does this only when fewer than 3 datasets were found |
+| `always_fill_datasets` | `true` | Search the full text for datasets for every paper. `false` does this only when fewer than 3 datasets were found |
+| `single_pass` | `true` | With `always_fill_datasets`: read the full text *before* extracting, so each paper takes one extraction call instead of an extraction plus a gap-fill call. A gap-fill call is still made for a field that came back empty without full-text evidence |
 
 ### `[server]` and `[storage]`
 
