@@ -113,7 +113,7 @@ def read_config(path: str | Path) -> dict[str, Any]:
             values[field_name] = value
     if values.get("backend", "openai") not in BACKENDS:
         raise ConfigError(f"{path}: [llm] backend must be one of {', '.join(BACKENDS)}")
-    if values.get("llm_effort", "low") not in EFFORTS:
+    if values.get("llm_effort", "medium") not in EFFORTS:
         raise ConfigError(f"{path}: [llm] effort must be one of {', '.join(repr(e) for e in EFFORTS)}")
     return values
 
@@ -129,7 +129,7 @@ class Settings:
     llm_timeout: float = 300.0
     llm_retries: int = 2
     cache_llm: bool = True
-    llm_effort: str = "low"  # reasoning effort for the claude-code and codex CLIs ("" = the CLI's default)
+    llm_effort: str = "medium"  # reasoning effort for the claude-code and codex CLIs ("" = the CLI's default)
     cli_user_config: bool = False  # let the CLIs load your own config (CLAUDE.md, hooks, plugins, config.toml)
 
     # --- Semantic Scholar ---

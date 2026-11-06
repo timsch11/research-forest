@@ -34,7 +34,7 @@ All settings are optional.
 | `timeout` | `300` | Seconds per call |
 | `retries` | `2` | Retries after invalid output or transient errors |
 | `cache` | `true` | Cache responses in `<db_path>.llmcache` |
-| `effort` | `"low"` | Reasoning effort for `claude-code` and `codex`: `low`, `medium`, `high`, `xhigh` or `max`. `""` uses the CLI's default. Extraction doesn't need deep reasoning, and thinking tokens are usually the largest part of a call's output |
+| `effort` | `"medium"` | Reasoning effort for `claude-code` and `codex`: `low`, `medium`, `high`, `xhigh` or `max`. `""` uses the CLI's default. On the gold set, `low` halved thinking tokens but cost the same overall and scored 2–4 points lower on every metric |
 | `cli_user_config` | `false` | Let `claude` and `codex` load your own setup. By default, Claude Code runs with `--setting-sources ""` (no CLAUDE.md, memory, hooks or plugins) and Codex with `--ignore-user-config` (no `config.toml`, so none of its MCP servers, model or effort). Otherwise all of that is sent along with every call. Turn this on only if your login depends on it, e.g. an `apiKeyHelper` or proxy set in `~/.claude/settings.json` |
 
 ### `[semantic_scholar]`

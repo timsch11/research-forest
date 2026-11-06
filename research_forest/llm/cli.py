@@ -49,7 +49,7 @@ class ClaudeCodeBackend(Backend):
     DEFAULT_MODEL = "haiku"
 
     def __init__(self, model: str | None = None, timeout: float = 300.0, binary: str = "claude", *,
-                 effort: str = "low", user_config: bool = False):
+                 effort: str = "medium", user_config: bool = False):
         self.model, self.timeout, self._bin = model or self.DEFAULT_MODEL, timeout, _require(binary)
         self.effort, self.user_config = effort, user_config
 
@@ -98,7 +98,7 @@ class CodexBackend(Backend):
     DEFAULT_MODEL = "gpt-6-luna"
 
     def __init__(self, model: str | None = None, timeout: float = 300.0, binary: str = "codex", *,
-                 effort: str = "low", user_config: bool = False):
+                 effort: str = "medium", user_config: bool = False):
         self.model, self.timeout, self._bin = model or self.DEFAULT_MODEL, timeout, _require(binary)
         self.effort, self.user_config = effort, user_config
 

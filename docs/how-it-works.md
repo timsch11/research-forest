@@ -241,10 +241,11 @@ The CLI backends are agents with a fixed prompt of their own, sent with every ca
 | `claude-code` | About 3.4k tokens, mostly prompt-cache reads, re-read on each of its 2 turns (`--json-schema` returns the answer through a tool) | Skips your own setup (`--setting-sources ""`): a 2k-word `~/.claude/CLAUDE.md` alone otherwise added about 19k input tokens per call |
 | `codex` | About 9k tokens of built-in tools, skills and agent text, plus your global `AGENTS.md` | Replaces Codex's 22k-character agent instructions with our system prompt, and skips `~/.codex/config.toml` (`--ignore-user-config`) |
 
-Both use a small model by default (`haiku`, `gpt-6-luna`) and `effort = "low"`, because
-thinking tokens otherwise outweigh the answer: about 1.2k thinking tokens per extraction call on
-Haiku at default effort, against about 350 tokens of JSON. `research-forest llm-log` shows the
-tokens each backend reported.
+Both use a small model by default (`haiku`, `gpt-6-luna`) with `effort = "medium"`. Thinking
+tokens often outweigh the answer (about 1.2k per extraction call on Haiku, against about 350
+tokens of JSON), but on the gold set `low` halved them without lowering the total: it cost the
+same and scored 2–4 points lower on datasets and limitations. `research-forest llm-log` shows
+the tokens each backend reported.
 
 ## Structured output
 

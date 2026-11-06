@@ -11,7 +11,7 @@ concurrency = 4               # parallel LLM calls
 timeout = 300                 # seconds per call
 retries = 2                   # retries after invalid output or transient errors
 cache = true                  # cache responses in <db_path>.llmcache
-effort = "low"                # claude-code/codex reasoning effort: low, medium, high, xhigh, max ("" = CLI default)
+effort = "medium"             # claude-code/codex reasoning effort: low, medium, high, xhigh, max ("" = CLI default)
 cli_user_config = false       # let claude/codex load your own setup (CLAUDE.md, hooks, plugins, config.toml)
 
 [semantic_scholar]
