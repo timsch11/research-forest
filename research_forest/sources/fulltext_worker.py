@@ -131,15 +131,21 @@ _APPENDIX_HEADING = re.compile(r"^\s*(?:[A-Z]\.?\s+)?(appendix|appendices|supple
 _LIMITATION_HEADING = re.compile(
     r"\b(limitations?|conclusions?|concluding remarks|discussion|future work|future directions|"
     r"broader impacts?|societal impacts?)\b", re.I)
-MAX_TABLES, MAX_SECTIONS, SECTION_CHARS = 15, 3, 2000
+MAX_TABLES, MAX_SECTIONS, SECTION_CHARS, MAX_TABLE_REFS, MAX_BIBLIOGRAPHY = 15, 3, 2000, 80, 400
+# citation markers inside table cells: "[84]", "[12, 13]", "(Wang et al., 2020)"
+_CITE_MARK = re.compile(r"\s*\[\s*\d+(?:\s*[,–-]\s*\d+)*\s*\]|\s*\(?[A-Z][\w-]+(?: and [A-Z][\w-]+| et al\.)?,? \(?\d{4}[a-z]?\)\)?")
+_ARXIV_ID = re.compile(r"arXiv[:\s]*(\d{4}\.\d{4,5})", re.I)
 
 
 class Document:
     """Text of a paper plus the structure gap filling uses: main-body table summaries and
     sections (heading, text)."""
 
-    def __init__(self, text: str, tables: list[str] | None = None, sections: list[tuple[str, str]] | None = None):
+    def __init__(self, text: str, tables: list[str] | None = None, sections: list[tuple[str, str]] | None = None,
+                 table_refs: list[dict] | None = None):
         self.text, self.tables, self.sections = text, tables or [], sections or []
+        self.table_refs = table_refs or []  # cited labels in main-body tables: {label, title, arxiv, table}
+        self.bibliography: list[dict] = []  # the paper's own reference list: {title, arxiv}
 
     def limitation_sections(self) -> list[str]:
         """Text of Limitations / Conclusion / Discussion / Future-work sections, limitations first."""
@@ -154,7 +160,7 @@ def _clean(text: str) -> str:
 
 def compact_table(caption: str, rows: list[list[str]]) -> str | None:
     """'Caption — columns: A | B | C — rows: x, y, z': where datasets and benchmarks are named."""
-    rows = [[_clean(c) for c in row] for row in rows]
+    rows = [[_clean(_CITE_MARK.sub("", c)) for c in row] for row in rows]
     rows = [row for row in rows if any(row)]
     text_cells = lambda row: [c for c in row if c and not _NUMERIC.fullmatch(c)]  # noqa: E731
     header_i = next((i for i, row in enumerate(rows) if len(text_cells(row)) >= 2), None)
@@ -192,19 +198,23 @@ class _HTMLText(HTMLParser):
     def __init__(self):
         super().__init__(convert_charrefs=True)
         self.parts: list[str] = []
-        self._stack: list[tuple[str, bool, bool, bool]] = []  # (tag, skips, starts appendix, starts table)
+        self._stack: list[tuple[str, bool, bool, bool, str | None]] = []  # (tag, skips, appendix, table, role)
         self._skip = 0
         self._appendix_after = False  # an "Appendix"/"Supplementary" heading was seen
         self._heading: list[str] | None = None
         self._heading_at = 0
         self._section_starts: list[tuple[str, int, int]] = []  # (heading, heading start, body start) in parts
         self._table: dict | None = None
-        self._cell: list[str] | None = None
+        self._cell: dict | None = None  # {"text": [...], "cites": [bib ids]}
+        self._table_cites: list[tuple[str, str, list[str]]] = []  # (table name, label, bib ids)
+        self._bib: dict[str, list[str]] = {}  # bibliography: id -> text blocks (authors, title, venue)
+        self._bib_id: str | None = None
+        self._bib_block: list[str] | None = None
         self._caption = False
         self.tables: list[str] = []
 
     def _in_appendix(self) -> bool:
-        return self._appendix_after or any(appendix for _, _, appendix, _ in self._stack)
+        return self._appendix_after or any(appendix for _, _, appendix, _, _ in self._stack)
 
     def handle_starttag(self, tag, attrs):
         if tag in self.BLOCK_TAGS:
@@ -213,19 +223,28 @@ class _HTMLText(HTMLParser):
             self.parts.append(" | ")
         if tag in self.VOID_TAGS:
             return
-        classes = set((dict(attrs).get("class") or "").split())
+        attributes = dict(attrs)
+        classes = set((attributes.get("class") or "").split())
         skipping = tag in self.SKIP_TAGS or bool(classes & self.SKIP_CLASSES)
         appendix = "ltx_appendix" in classes
         table = tag == "figure" and "ltx_table" in classes and self._table is None and not self._skip
-        self._stack.append((tag, skipping, appendix, table))
+        role = None
+        if tag == "li" and "ltx_bibitem" in classes and attributes.get("id"):
+            role, self._bib_id = "bibitem", attributes["id"]
+            self._bib[self._bib_id] = []
+        elif self._bib_id and "ltx_bibblock" in classes:
+            role, self._bib_block = "bibblock", []
+        self._stack.append((tag, skipping, appendix, table, role))
         self._skip += skipping
+        if tag == "a" and self._cell is not None and (attributes.get("href") or "").startswith("#bib."):
+            self._cell["cites"].append(attributes["href"][1:])
         if table:
             self._table = {"rows": [], "caption": [], "appendix": self._in_appendix()}
         elif self._table is not None:
             if tag == "tr":
                 self._table["rows"].append([])
             elif tag in self.CELL_TAGS and self._table["rows"]:
-                self._cell = []
+                self._cell = {"text": [], "cites": []}
                 self._table["rows"][-1].append(self._cell)
             elif tag == "figcaption":
                 self._caption = True
@@ -249,21 +268,35 @@ class _HTMLText(HTMLParser):
         if tag in self.VOID_TAGS or not any(t == tag for t, *_ in self._stack):
             return
         while self._stack:  # pop to the matching tag (tolerates unclosed children)
-            t, skipping, _, table = self._stack.pop()
+            t, skipping, _, table, role = self._stack.pop()
             self._skip -= skipping
             if table:
                 self._finish_table()
+            if role == "bibblock" and self._bib_block is not None and self._bib_id:
+                self._bib[self._bib_id].append(_clean("".join(self._bib_block)))
+                self._bib_block = None
+            elif role == "bibitem":
+                self._bib_id = None
             if t == tag:
                 break
 
     def _finish_table(self) -> None:
         tbl, self._table, self._cell, self._caption = self._table, None, None, False
         if tbl and not tbl["appendix"] and len(self.tables) < MAX_TABLES:
-            rows = [["".join(cell) for cell in row] for row in tbl["rows"]]
-            if summary := compact_table("".join(tbl["caption"]), rows):
+            caption = "".join(tbl["caption"])
+            rows = [["".join(cell["text"]) for cell in row] for row in tbl["rows"]]
+            if summary := compact_table(caption, rows):
                 self.tables.append(summary)
+            name = m.group(0) if (m := re.match(r"\s*Table\s*[\w.]+", caption)) else "Table"
+            for row in tbl["rows"]:
+                for cell in row:
+                    label = _clean(_CITE_MARK.sub("", "".join(cell["text"])))
+                    if cell["cites"] and label and not _NUMERIC.fullmatch(label):
+                        self._table_cites.append((_clean(name), label[:120], cell["cites"]))
 
     def handle_data(self, data):
+        if self._bib_block is not None:  # bibliography text is captured even though it is skipped
+            self._bib_block.append(data)
         if self._skip:
             return
         text = _SPACES.sub(" ", data)  # source newlines are just spaces
@@ -274,7 +307,7 @@ class _HTMLText(HTMLParser):
             if self._caption:
                 self._table["caption"].append(text)
             elif self._cell is not None:
-                self._cell.append(text)
+                self._cell["text"].append(text)
 
     @classmethod
     def _join(cls, parts: list[str]) -> str:
@@ -284,6 +317,30 @@ class _HTMLText(HTMLParser):
 
     def text(self) -> str:
         return self._join(self.parts)
+
+    @staticmethod
+    def _bib_entry(blocks: list[str]) -> dict:
+        arxiv = m.group(1) if (m := _ARXIV_ID.search(" ".join(blocks))) else None
+        return {"title": (blocks[1] if len(blocks) > 1 else blocks[0])[:300], "arxiv": arxiv}
+
+    def bibliography(self) -> list[dict]:
+        """The paper's own reference list (title, arXiv id): a fallback when the bibliographic
+        database has no references for the paper."""
+        entries = [self._bib_entry(b) for b in ([x for x in blocks if x] for blocks in self._bib.values()) if b]
+        return entries[:MAX_BIBLIOGRAPHY]
+
+    def table_refs(self) -> list[dict]:
+        """Cited labels in main-body tables, resolved to their bibliography entries: usually the
+        baselines a paper compares against ("Linformer [84]" -> "Linformer: Self-attention ...")."""
+        refs, seen = [], set()
+        for table, label, cites in self._table_cites:
+            for bib_id in cites:
+                blocks = [b for b in self._bib.get(bib_id, []) if b]
+                if not blocks or (label, bib_id) in seen:
+                    continue
+                seen.add((label, bib_id))
+                refs.append({"label": label, **self._bib_entry(blocks), "table": table})
+        return refs[:MAX_TABLE_REFS]
 
     def sections(self) -> list[tuple[str, str]]:
         """(heading, body) pairs; a body ends where the next heading begins."""
@@ -334,7 +391,9 @@ def parse_document(data: bytes, ctype: str, url: str = "") -> Document:
     parser = _HTMLText()
     parser.feed(text)
     parser.close()
-    return Document(parser.text(), parser.tables, parser.sections())
+    doc = Document(parser.text(), parser.tables, parser.sections(), parser.table_refs())
+    doc.bibliography = parser.bibliography()
+    return doc
 
 
 def extract_text(data: bytes, ctype: str, url: str = "") -> str:
@@ -408,6 +467,8 @@ def main() -> None:
                 raise ValueError("no extractable text")
             out = {"source": url, "passages": search(text, req["queries"], int(req.get("top_k", 4))), "error": None,
                    "tables": doc.tables if req.get("tables") else [],
+                   "table_refs": doc.table_refs if req.get("tables") else [],
+                   "bibliography": doc.bibliography if req.get("tables") else [],
                    "sections": doc.limitation_sections() if req.get("sections") else []}
             break
         except Exception as e:  # noqa: BLE001 - report any failure to the parent

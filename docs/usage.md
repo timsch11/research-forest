@@ -13,9 +13,9 @@ Open the URL it prints. The token in it is exchanged for a cookie, so later visi
 |---|---|
 | **Lineage view** | A timeline with papers placed by year. Arrows are *builds-on* edges, labelled with the [kind of change](how-it-works.md#lineage-and-change-types). Faint dashed lines are plain citations. |
 | **Landscape view** | Every node type together (papers, methods, datasets, limitation themes, open questions), laid out by force direction. |
-| **Filters** | Node types, a year range and change types. Entities that lose all their visible papers are hidden too. |
+| **Filters** | Node types, relations (builds on, baseline comparisons, citations), a year range and change types. Entities that lose all their visible papers are hidden too. |
 | **Search** | Instant keyword search over every node, with highlighted snippets. Click a result to focus it. |
-| **Details panel** | For a paper: its contribution, what it builds on and what changed, who builds on it, methods, datasets, limitations (marked *stated*, *citing* or *inferred*), future work, limitation themes and related open questions. For an entity: every connected paper, grouped by relation. |
+| **Details panel** | For a paper: its contribution, what it builds on and what changed, who builds on it, which baselines it compares against and who uses it as a baseline, methods, datasets, limitations (marked *stated*, *citing* or *inferred*), future work, limitation themes and related open questions. For an entity: every connected paper, grouped by relation. |
 | **Open questions** | The synthesised research questions. Click one to see its motivating themes and papers. |
 | **Refine / Ask** | The command bar. See below. |
 | **Progress card** | While a build or refinement runs: a stage stepper, an overall progress bar, the current step with counts (e.g. *Judging 275 citations… 24 / 39*) and elapsed time. It ends with a run summary. |

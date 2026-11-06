@@ -30,7 +30,7 @@ from pydantic import BaseModel, Field
 from .config import Settings
 from .engine import Forest
 from .models import Scope
-from .pipeline import analyze, discover
+from .pipeline import analyze, baselines, discover
 from .prompts import SYSTEM, clip
 from .safety import data_block
 from .store import entity_key, pid
@@ -78,7 +78,8 @@ async def judge_limitations(llm, gold: list[str], extracted: list[str]) -> list[
     return sorted({i for i in res.covered if 0 <= i < len(gold)})
 
 
-def score_paper(gold: dict, extraction, covered: list[int] | None = None) -> dict:
+def score_paper(gold: dict, extraction, covered: list[int] | None = None,
+                resolved: dict[str, str] | None = None) -> dict:
     predicted = [d.name for d in extraction.datasets] if extraction else []
     gold_sets: list[list[str]] = gold["datasets"]
     found = [aliases[0] for aliases in gold_sets if any(matches(p, aliases) for p in predicted)]
@@ -96,6 +97,21 @@ def score_paper(gold: dict, extraction, covered: list[int] | None = None) -> dic
         "methods_proposed": proposed,
         "limitations": [f"{l.text} ({l.source})" for l in extraction.limitations] if extraction else [],
         **_limitation_scores(gold.get("limitations", []), extraction, covered or []),
+        **_baseline_scores(gold.get("baselines", []), extraction, resolved or {}),
+    }
+
+
+def _baseline_scores(gold: list[list[str]], extraction, resolved: dict[str, str]) -> dict:
+    """Baseline recall against the gold list, and how many extracted baselines resolved to a paper.
+    ``resolved`` maps extracted baseline names to the title of the paper they resolved to."""
+    predicted = list(extraction.baselines) if extraction else []
+    found = [aliases[0] for aliases in gold if any(matches(p, aliases) for p in predicted)]
+    return {
+        "baseline_recall": len(found) / len(gold) if gold else None,
+        "baselines_missed": [a[0] for a in gold if a[0] not in found],
+        "baselines": predicted,
+        "baselines_resolved": resolved,
+        "baseline_resolution": len(resolved) / len(predicted) if predicted else None,
     }
 
 
@@ -112,9 +128,13 @@ def _limitation_scores(gold: list[str], extraction, covered: list[int]) -> dict:
 def summarise(papers: list[dict], gap_filled: int) -> dict:
     n = len(papers) or 1
     judged = [p["limitation_recall"] for p in papers if p.get("limitation_recall") is not None]
+    mean = lambda key: (round(sum(v) / len(v), 3) if (v := [p[key] for p in papers if p.get(key) is not None])  # noqa: E731
+                        else None)
     sources = {s: sum(p.get("limitation_sources", {}).get(s, 0) for p in papers) for s in ("stated", "citing", "inferred")}
     return {
         "limitation_recall": round(sum(judged) / len(judged), 3) if judged else None,
+        "baseline_recall": mean("baseline_recall"),
+        "baseline_resolution": mean("baseline_resolution"),
         "limitations_per_paper": round(sum(sources.values()) / n, 1),
         "stated_limitation_share": round(sources["stated"] / (sum(sources.values()) or 1), 3),
         "papers": len(papers),
@@ -180,7 +200,15 @@ async def evaluate(settings: Settings, gold_path: Path = DEFAULT_GOLD, limit: in
                 return []
 
         covered = await asyncio.gather(*(judged(g, i) for g, i in resolved))
-        papers = [score_paper(g, records[i].extraction, c) for (g, i), c in zip(resolved, covered)]
+        await baselines.lookup_bibliography(ctx)
+        baselines.link(ctx)  # resolve extracted baselines via table citations, the graph and references
+        titles = {r.node: r.paper.title for r in store.papers(project)}
+        linked: dict[str, dict[str, str]] = {}
+        for e in store.edges(project, ["compares_with"]):
+            if e["dst"].startswith("p:"):
+                linked.setdefault(e["src"][2:], {})[e["data"]["name"]] = titles.get(e["dst"], e["dst"])
+        papers = [score_paper(g, records[i].extraction, c, linked.get(i, {}))
+                  for (g, i), c in zip(resolved, covered)]
         return {"summary": summarise(papers, stats.gap_filled), "papers": papers,
                 "settings": {"backend": settings.backend, "model": settings.model,
                              "fulltext": settings.fulltext_enabled}}
@@ -249,7 +277,8 @@ def format_report(report: dict, baseline: dict | None = None) -> str:
     s, b = report["summary"], (baseline or {}).get("summary", {})
     rows = [("Dataset recall", "dataset_recall"), ("Dataset precision (≥)", "dataset_precision_lower_bound"),
             ("Proposed method found", "method_hit_rate"), ("Papers with limitations", "with_limitations"),
-            ("Limitation recall (judge)", "limitation_recall"), ("Stated limitations share", "stated_limitation_share")]
+            ("Limitation recall (judge)", "limitation_recall"), ("Stated limitations share", "stated_limitation_share"),
+            ("Baseline recall", "baseline_recall"), ("Baselines resolved to papers", "baseline_resolution")]
     lines = [f"Evaluated {s['papers']} papers ({s['gap_filled_papers']} needed full-text gap filling)", ""]
     for label, key in rows:
         if s.get(key) is None:

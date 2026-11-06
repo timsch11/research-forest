@@ -3,6 +3,9 @@
 const KINDS = ["paper", "method", "dataset", "limitation", "question"];
 const KIND_LABEL = { paper: "Papers", method: "Methods", dataset: "Datasets", limitation: "Limitations", question: "Open questions" };
 const CHANGE_TYPES = ["architecture", "objective", "training", "data", "efficiency", "evaluation", "theory", "application", "other"];
+// paper-to-paper relations shown in both views: [edge kind, label, shown by default]
+const RELATIONS = [["builds_on", "Builds on", true], ["compares_with", "Baseline comparisons", true],
+                   ["cites", "Citations", true]];
 const SHAPES = { paper: "ellipse", method: "round-rectangle", dataset: "barrel", limitation: "triangle", question: "diamond" };
 const EDGE_LABEL = {
   builds_on: "builds on", cites: "cites", proposes: "proposes", uses: "uses", evaluates_on: "evaluated on",
@@ -38,7 +41,10 @@ function initFilters() {
     `<label><input type="checkbox" data-kind="${k}" checked><span class="dot" style="background:var(--${k})"></span>${KIND_LABEL[k]}</label>`).join("");
   $("change-filters").innerHTML = CHANGE_TYPES.map((c) =>
     `<label><input type="checkbox" data-change="${c}" checked>${c}</label>`).join("");
-  for (const el of document.querySelectorAll("#kind-filters input, #change-filters input, #year-min, #year-max"))
+  $("relation-filters").innerHTML = RELATIONS.map(([k, label, on]) =>
+    `<label><input type="checkbox" data-relation="${k}" ${on ? "checked" : ""}>${label}</label>`).join("");
+  for (const el of document.querySelectorAll(
+    "#kind-filters input, #change-filters input, #relation-filters input, #year-min, #year-max"))
     el.addEventListener("change", applyFilters);
 }
 
@@ -59,6 +65,9 @@ function initCy() {
         label: "data(change_type)", "font-size": 8, color: css("--muted"), "text-rotation": "autorotate",
         "text-background-color": css("--bg"), "text-background-opacity": 1, "text-background-padding": 1 } },
       { selector: "edge[kind = 'cites']", style: { "line-style": "dashed", opacity: 0.3 } },
+      { selector: "edge[kind = 'compares_with']", style: {
+        "line-style": "dotted", width: 1.6, "line-color": css("--limitation"), "target-arrow-color": css("--limitation"),
+        opacity: 0.75 } },
       { selector: ".faded", style: { opacity: 0.12 } },
       { selector: ".hit", style: { "border-width": 3, "border-color": css("--accent") } },
       { selector: "node:selected", style: { "border-width": 4, "border-color": css("--text") } },
@@ -205,6 +214,7 @@ function applyFilters() {
   if (!cy) return;
   const kinds = new Set([...document.querySelectorAll("#kind-filters input:checked")].map((i) => i.dataset.kind));
   const changes = new Set([...document.querySelectorAll("#change-filters input:checked")].map((i) => i.dataset.change));
+  const relations = new Set([...document.querySelectorAll("#relation-filters input:checked")].map((i) => i.dataset.relation));
   const yMin = Number($("year-min").value) || -Infinity, yMax = Number($("year-max").value) || Infinity;
   const lineage = state.view === "lineage";
   cy.batch(() => {
@@ -222,7 +232,9 @@ function applyFilters() {
     });
     cy.edges().forEach((e) => {
       const k = e.data("kind");
-      const show = (k !== "builds_on" || changes.has(e.data("change_type"))) && (!lineage || k === "builds_on" || k === "cites");
+      const paperRelation = RELATIONS.some(([r]) => r === k);
+      const show = (k !== "builds_on" || changes.has(e.data("change_type")))
+        && (!paperRelation || relations.has(k)) && (!lineage || paperRelation);
       e.style("display", show ? "element" : "none");
     });
   });
@@ -267,6 +279,10 @@ async function showNode(id) {
   const change = (nb) => `${nodeLink(nb.node, nb.label)}<span class="chip">${esc(nb.data.change_type)}</span>
       <br><span class="muted">${esc(nb.data.summary || "")}${nb.data.component ? ` (${esc(nb.data.component)})` : ""}</span>`;
   const kind = kindOf(n.kind);
+  // show the name used in the results table only when the title does not already contain it
+  const baseline = (nb) => `${nodeLink(nb.node, nb.label)}${nb.data.name
+    && !String(nb.label).toLowerCase().includes(String(nb.data.name).toLowerCase())
+    ? `<span class="chip">as ${esc(nb.data.name)}</span>` : ""}`;
   let html = `<div class="kind" style="color:var(--${kind})">${esc(n.kind)}</div>`;
 
   if (n.kind === "paper") {
@@ -278,6 +294,8 @@ async function showNode(id) {
       ${ex ? `<h4>Contribution</h4><p>${esc(ex.contribution)}</p>` : `<p>${esc(n.tldr || n.abstract || "")}</p>`}
       ${list("builds_on:out", "Builds on", change)}
       ${list("builds_on:in", "Built upon by", change)}
+      ${list("compares_with:out", "Compared against", baseline)}
+      ${list("compares_with:in", "Used as a baseline by")}
       ${list("proposes:out", "Proposes")}
       ${list("uses:out", "Uses methods")}
       ${list("evaluates_on:out", "Datasets", (nb) => `${nodeLink(nb.node, nb.label)}<span class="chip">${esc(nb.data.usage || "")}</span>`)}
@@ -291,6 +309,7 @@ async function showNode(id) {
   } else {
     html += `<h2>${esc(n.name)}</h2>${n.description ? `<p>${esc(n.description)}</p>` : ""}
       ${list("proposes:in", "Proposed by")}
+      ${list("compares_with:in", "Used as a baseline by")}
       ${list("uses:in", "Used by")}
       ${list("evaluates_on:in", "Papers using it")}
       ${list("has_limitation:in", "Papers with this limitation")}

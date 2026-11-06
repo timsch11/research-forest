@@ -1,5 +1,5 @@
 {
- "description": "Gold set for `research-forest evaluate`: well-known papers with the datasets they train or evaluate on and the method they propose. Each dataset is a list of accepted aliases. Gold lists cover the main datasets, not necessarily all, so dataset precision is reported as a lower bound. `limitations` lists weaknesses the paper itself states (empty when not curated); extracted limitations are matched against them by an LLM judge.",
+ "description": "Gold set for `research-forest evaluate`: well-known papers with the datasets they train or evaluate on and the method they propose. Each dataset is a list of accepted aliases. Gold lists cover the main datasets, not necessarily all, so dataset precision is reported as a lower bound. `limitations` lists weaknesses the paper itself states (empty when not curated); extracted limitations are matched against them by an LLM judge. `baselines` lists methods the paper compares against in its main results tables (aliases per entry; empty when not curated).",
  "papers": [
   {
    "id": "ARXIV:1706.03762",
@@ -35,6 +35,25 @@
    "limitations": [
     "Self-attention cost grows quadratically with sequence length, so very long inputs (images, audio, video) need restricted or local attention",
     "Generation (decoding) remains sequential/autoregressive; making it less sequential is future work"
+   ],
+   "baselines": [
+    [
+     "ByteNet"
+    ],
+    [
+     "ConvS2S"
+    ],
+    [
+     "GNMT",
+     "GNMT + RL"
+    ],
+    [
+     "Deep-Att + PosUnk",
+     "Deep-Att"
+    ],
+    [
+     "MoE"
+    ]
    ]
   },
   {
@@ -77,6 +96,16 @@
    "limitations": [
     "Mismatch between pre-training and fine-tuning because the [MASK] token never appears during fine-tuning",
     "The masked LM predicts only 15% of tokens per batch, so pre-training needs more steps to converge"
+   ],
+   "baselines": [
+    [
+     "OpenAI GPT",
+     "GPT"
+    ],
+    [
+     "ELMo",
+     "BiLSTM+ELMo+Attn"
+    ]
    ]
   },
   {
@@ -109,6 +138,22 @@
    ],
    "limitations": [
     "The extremely deep 1202-layer network does worse than the 110-layer one on CIFAR-10, attributed to overfitting on the small dataset"
+   ],
+   "baselines": [
+    [
+     "VGG",
+     "VGG-16"
+    ],
+    [
+     "GoogLeNet"
+    ],
+    [
+     "PReLU-net"
+    ],
+    [
+     "BN-Inception",
+     "BN-inception"
+    ]
    ]
   },
   {
@@ -140,7 +185,8 @@
      "PTB"
     ]
    ],
-   "limitations": []
+   "limitations": [],
+   "baselines": []
   },
   {
    "id": "ARXIV:2004.05150",
@@ -198,6 +244,17 @@
    "limitations": [
     "Needs a custom CUDA kernel (implemented with TVM) for the banded/dilated sliding-window attention",
     "Where to place global attention is task-specific and must be chosen by hand"
+   ],
+   "baselines": [
+    [
+     "RoBERTa"
+    ],
+    [
+     "Transformer-XL"
+    ],
+    [
+     "Adaptive Span"
+    ]
    ]
   },
   {
@@ -229,7 +286,8 @@
    "limitations": [
     "LSH attention approximates full attention; accuracy depends on the number of hashing rounds, and more rounds cost more compute",
     "Reversible layers trade memory for extra computation because activations are recomputed in the backward pass"
-   ]
+   ],
+   "baselines": []
   },
   {
    "id": "ARXIV:2007.14062",
@@ -304,6 +362,14 @@
    ],
    "limitations": [
     "Sparse attention cannot universally replace dense attention: some tasks that full attention solves in O(1) layers need many more layers with sparse attention (no free lunch)"
+   ],
+   "baselines": [
+    [
+     "RoBERTa"
+    ],
+    [
+     "Longformer"
+    ]
    ]
   },
   {
@@ -336,7 +402,40 @@
      "Path-X"
     ]
    ],
-   "limitations": []
+   "limitations": [],
+   "baselines": [
+    [
+     "Local Attention"
+    ],
+    [
+     "Sparse Transformer"
+    ],
+    [
+     "Longformer"
+    ],
+    [
+     "Linformer"
+    ],
+    [
+     "Reformer"
+    ],
+    [
+     "Sinkhorn Transformer",
+     "Sinkhorn"
+    ],
+    [
+     "Synthesizer"
+    ],
+    [
+     "BigBird"
+    ],
+    [
+     "Linear Transformer"
+    ],
+    [
+     "Performer"
+    ]
+   ]
   },
   {
    "id": "ARXIV:2111.00396",
@@ -385,6 +484,32 @@
    ],
    "limitations": [
     "Still trails Transformers on language modeling (e.g. WikiText-103 perplexity)"
+   ],
+   "baselines": [
+    [
+     "Reformer"
+    ],
+    [
+     "BigBird"
+    ],
+    [
+     "Linear Transformer",
+     "Linear Trans."
+    ],
+    [
+     "Performer"
+    ],
+    [
+     "FNet"
+    ],
+    [
+     "Nystr\u00f6mformer",
+     "Nystromformer"
+    ],
+    [
+     "Luna",
+     "Luna-256"
+    ]
    ]
   },
   {
@@ -426,6 +551,36 @@
    "limitations": [
     "Requires writing a new CUDA kernel for each attention variant, which takes engineering effort and may not transfer across GPU architectures",
     "The IO-aware algorithm targets a single GPU; extending it to multiple GPUs is left to future work"
+   ],
+   "baselines": [
+    [
+     "Linformer"
+    ],
+    [
+     "Performer"
+    ],
+    [
+     "Reformer"
+    ],
+    [
+     "SMYRF",
+     "Smyrf"
+    ],
+    [
+     "Linear Attention",
+     "Linear Transformer"
+    ],
+    [
+     "Local Attention"
+    ],
+    [
+     "Megatron-LM",
+     "Megatron"
+    ],
+    [
+     "HuggingFace",
+     "Huggingface"
+    ]
    ]
   },
   {
@@ -479,6 +634,27 @@
    "limitations": [
     "Not yet evaluated at larger model scales (beyond a few billion parameters)",
     "The selection mechanism can hurt on continuous, uniformly sampled signals such as audio, where LTI (non-selective) SSMs do better"
+   ],
+   "baselines": [
+    [
+     "Pythia"
+    ],
+    [
+     "RWKV"
+    ],
+    [
+     "H3",
+     "Hybrid H3"
+    ],
+    [
+     "Hyena"
+    ],
+    [
+     "GPT-Neo"
+    ],
+    [
+     "OPT"
+    ]
    ]
   },
   {
@@ -524,6 +700,16 @@
    "limitations": [
     "Needs large-scale pre-training (ImageNet-21k or JFT-300M); trained on mid-sized data like ImageNet alone it underperforms ResNets because it lacks their inductive biases",
     "Applying it to other vision tasks such as detection and segmentation remains open"
+   ],
+   "baselines": [
+    [
+     "BiT",
+     "Big Transfer",
+     "BiT-L"
+    ],
+    [
+     "Noisy Student"
+    ]
    ]
   },
   {
@@ -561,7 +747,15 @@
      "Stories"
     ]
    ],
-   "limitations": []
+   "limitations": [],
+   "baselines": [
+    [
+     "BERT"
+    ],
+    [
+     "XLNet"
+    ]
+   ]
   },
   {
    "id": "ARXIV:1910.10683",
@@ -615,7 +809,8 @@
    "limitations": [
     "The largest models are expensive to train and use, which matters where compute is limited",
     "Pre-training data (C4) is English-only; language-agnostic models remain future work"
-   ]
+   ],
+   "baselines": []
   },
   {
    "id": "ARXIV:2106.09685",
@@ -654,6 +849,31 @@
    "limitations": [
     "Inputs for different tasks (with different LoRA modules) cannot easily be batched in one forward pass when the LoRA weights are merged into the model to avoid extra latency",
     "Which weight matrices to adapt is chosen heuristically"
+   ],
+   "baselines": [
+    [
+     "Fine-Tuning",
+     "FT",
+     "full fine-tuning"
+    ],
+    [
+     "BitFit"
+    ],
+    [
+     "Adapter",
+     "Adapters",
+     "AdapterH",
+     "AdapterL",
+     "AdapterP",
+     "AdapterD"
+    ],
+    [
+     "Prefix-tuning",
+     "PreLayer",
+     "PreEmbed",
+     "prefix-embedding tuning",
+     "prefix-layer tuning"
+    ]
    ]
   },
   {
@@ -681,6 +901,19 @@
    ],
    "limitations": [
     "Log likelihoods are not competitive with other likelihood-based generative models"
+   ],
+   "baselines": [
+    [
+     "NCSN",
+     "NCSNv2"
+    ],
+    [
+     "BigGAN"
+    ],
+    [
+     "StyleGAN2",
+     "StyleGAN2 + ADA"
+    ]
    ]
   },
   {
@@ -714,7 +947,12 @@
      "QQP"
     ]
    ],
-   "limitations": []
+   "limitations": [],
+   "baselines": [
+    [
+     "RoBERTa"
+    ]
+   ]
   }
  ]
 }

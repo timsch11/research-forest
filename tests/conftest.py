@@ -107,6 +107,8 @@ class FakeBackend(Backend):
         title = re.search(r"^Title: (.*)$", user, re.M).group(1)
         name = title.split(":")[0]
         gap_filled = 'source="full-text passages' in user
+        baselines = {"FlashAttention": ["Linformer", "Performer", "Megatron-LM"],
+                     "Mamba": ["Sparse Transformer", "FlashAttention"]}.get(name, [])
         return {"contribution": f"{name} makes attention efficient.",
                 "methods_proposed": [{"name": name, "description": f"The {name} method"}],
                 "methods_used": ["Transformer"] if "Attention Is All" not in title else [],
@@ -116,6 +118,7 @@ class FakeBackend(Backend):
                 "limitations": [{"text": "Relies on custom CUDA kernels", "source": "stated"}] if gap_filled else
                                [{"text": "Quadratic memory in sequence length", "source": "inferred"}],
                 "future_work": ["Scale to longer contexts"],
+                "baselines": baselines,
                 "missing": ["limitations"] if name == "FlashAttention" and not gap_filled else [],
                 "search_terms": ["kernel"]}
 
@@ -198,7 +201,7 @@ def settings(tmp_path):
     # always_fill_datasets=False keeps gap filling to the cases the tests set up explicitly.
     return Settings(db_path=str(tmp_path / "test.forest.db"), target_papers=7, s2_rps=0,
                     fulltext_enabled=True, fulltext_prefer_html=False, fulltext_always_fill_datasets=False,
-                    cache_llm=False)
+                    baseline_papers=0, cache_llm=False)
 
 
 def make_forest(settings, backend, handler=s2_handler, logs: list | None = None) -> Forest:

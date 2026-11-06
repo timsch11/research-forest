@@ -11,7 +11,7 @@ from typing import Callable
 from .config import Settings
 from .llm import LLM, make_llm
 from .models import Answer, Paper, RefinePlan
-from .pipeline import analyze, discover
+from .pipeline import analyze, baselines, discover
 from .pipeline.context import Ctx
 from .pipeline.synthesize import synthesize as run_synthesis
 from .prompts import SYSTEM, answer_prompt, clip, refine_prompt
@@ -23,7 +23,7 @@ CORE_FRACTION = 0.6  # share of the paper budget filled from search before snowb
 
 # Ordered stages of each job, shown as a stepper in the UI. process() covers the shared tail.
 PROCESS_STAGES = [("links", "Citations"), ("extract", "Analysis"), ("lineage", "Lineage"),
-                  ("normalize", "Duplicates"), ("synthesize", "Open questions")]
+                  ("normalize", "Duplicates"), ("baselines", "Baselines"), ("synthesize", "Open questions")]
 JOB_STAGES = {
     "build": [("scope", "Scope"), ("search", "Search"), ("screen", "Screening"), ("snowball", "Snowball"),
               *PROCESS_STAGES],
@@ -89,7 +89,7 @@ class Forest:
             ctx.stage("snowball", "Snowballing: adding frequently co-cited references")
             await discover.snowball(ctx, target - len(self.store.papers(project, "included")))
             discover.select(ctx, target - len(self.store.papers(project, "included")))  # top up if snowball was thin
-            await self.process(project, synthesize=True)
+            await self.process(project, synthesize=True, baseline_papers=self.settings.baseline_papers)
             ctx.log(self._summary(project, started))
             self.store.set_status(project, "ready")
         except BaseException:
@@ -103,25 +103,42 @@ class Forest:
             await discover.refresh_metadata(ctx, todo)
             await discover.fetch_links(ctx, todo, "references")
 
-    async def process(self, project: int, synthesize: bool = False) -> None:
-        """Bring derived data up to date for the current paper set (only new work is done)."""
+    async def process(self, project: int, synthesize: bool = False, baseline_papers: int = 0) -> None:
+        """Bring derived data up to date for the current paper set (only new work is done).
+
+        ``baseline_papers``: afterwards, add up to this many papers that graph papers use as
+        baselines but the graph lacks, and analyse them too.
+        """
         ctx = self.ctx(project)
-        ctx.stage("links", "Fetching citations and citation contexts")
-        await self._fetch_new_links(ctx)
-        todo = [r for r in self.store.papers(project, "included") if r.extraction is None]
-        if todo:
-            ctx.stage("extract", f"Analysing {len(todo)} papers")
-            await analyze.extract(ctx, todo)
-        ctx.stage("lineage", "Tracing lineage: which papers build on which")
-        await analyze.relate(ctx)
-        if todo:
-            ctx.stage("normalize", "Merging duplicate methods and datasets")
-            await analyze.normalize(ctx)
+        analysed = await self._analyse(ctx, staged=True)
+        if baseline_papers > 0:
+            ctx.stage("baselines", "Adding papers that graph papers compare against")
+            if await baselines.expand(ctx, baseline_papers):
+                analysed += await self._analyse(ctx, staged=False)
         self.store.prune_orphans(project)
-        if synthesize or todo:
+        if synthesize or analysed:
             ctx.stage("synthesize", "Synthesising limitation themes and open questions")
             await run_synthesis(ctx)
         self.store.reindex(project)
+
+    async def _analyse(self, ctx: Ctx, staged: bool) -> int:
+        """Citations, extraction, baseline links, lineage and normalisation for new papers.
+        Returns the number of newly analysed papers. ``staged=False`` runs inside another stage."""
+        stage = ctx.stage if staged else (lambda key, label: ctx.log(label))
+        stage("links", "Fetching citations and citation contexts")
+        await self._fetch_new_links(ctx)
+        todo = [r for r in self.store.papers(ctx.project, "included") if r.extraction is None]
+        if todo:
+            stage("extract", f"Analysing {len(todo)} papers")
+            await analyze.extract(ctx, todo)
+        stage("lineage", "Tracing lineage: baseline comparisons and which papers build on which")
+        await baselines.lookup_bibliography(ctx)
+        baselines.link(ctx)
+        await analyze.relate(ctx)
+        if todo:
+            stage("normalize", "Merging duplicate methods and datasets")
+            await analyze.normalize(ctx)
+        return len(todo)
 
     # ----------------------------------------------------------- refinement
 
@@ -279,7 +296,7 @@ class Forest:
 
 
 # Edges worth spelling out in Q&A context; method/dataset links are inlined in paper lines.
-CONTEXT_EDGES = {"builds_on", "has_limitation", "addresses", "motivates", "about"}
+CONTEXT_EDGES = {"builds_on", "compares_with", "has_limitation", "addresses", "motivates", "about"}
 GAP_INTENT = re.compile(r"\b(open|gaps?|future|unsolved|unresolved|questions?|limitations?|challenges?|"
                         r"problems?|directions?|missing|lack)\b", re.IGNORECASE)
 FOLLOW_UP = re.compile(r"^\s*(and|also|but|so|then|what about|how about|which of|of (those|these|them))\b"

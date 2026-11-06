@@ -115,6 +115,7 @@ def merge_gapfill(ex: Extraction, fill: GapFill, filled: list[str]) -> Extractio
     return Extraction.model_validate({
         **ex.model_dump(),
         "methods_used": _union(ex.methods_used, fill.methods_used, entity_key),
+        "baselines": _union(ex.baselines, fill.baselines, entity_key),
         "datasets": dump(_union(ex.datasets, fill.datasets, lambda d: entity_key(d.name))),
         "limitations": dump(_union(ex.limitations, fill.limitations, lambda l: l.text.lower())),
         "future_work": _union(ex.future_work, fill.future_work, str.lower),
@@ -160,6 +161,11 @@ async def extract(ctx: Ctx, recs: list[PaperRecord], deep: bool = False) -> Extr
         if fields and ctx.finder:
             passages = await ctx.finder.find(r.paper, fields, ex.search_terms, vocabulary,
                                              sections=ctx.settings.fulltext_limitation_sections)
+            # cited table labels (dicts) are only used to resolve baselines; they never enter a prompt
+            if table_refs := passages.pop("table_refs", None):
+                ctx.store.set_meta(ctx.project, f"table_refs:{r.paper.id}", table_refs)
+            if bibliography := passages.pop("bibliography", None):
+                ctx.store.set_meta(ctx.project, f"bibliography:{r.paper.id}", bibliography)
             if any(looks_like_injection(t) for texts in passages.values() for t in texts):
                 ctx.log(f"warning: instruction-like text in full text of {r.paper.title[:80]!r} (treated as data)")
             if passages:
@@ -243,6 +249,7 @@ async def relate(ctx: Ctx) -> int:
     """Classify unjudged in-graph citations as builds-on (with typed change) or plain citation."""
     included = {r.paper.id: r for r in ctx.store.papers(ctx.project, "included")}
     cap = ctx.settings.max_refs_per_paper
+    compared = {(e["src"], e["dst"]) for e in ctx.store.edges(ctx.project, ["compares_with"])}
     per_citing: dict[str, list[dict]] = defaultdict(list)
     for e in ctx.store.edges(ctx.project, ["cites"]):
         s, d = e["src"][2:], e["dst"][2:]
@@ -266,7 +273,8 @@ async def relate(ctx: Ctx) -> int:
 
     async def judge(anchor_id: str, anchor_is_citing: bool, batch: list[dict]) -> int:
         other = (lambda e: included[e["dst"][2:]]) if anchor_is_citing else (lambda e: included[e["src"][2:]])
-        others = [(other(e).paper, _contribution(other(e)), e["data"]) for e in batch]
+        others = [(other(e).paper, _contribution(other(e)),
+                   {**e["data"], "baseline": (e["src"], e["dst"]) in compared}) for e in batch]
         anchor = included[anchor_id]
         res = await ctx.llm.json(Relations, SYSTEM, relate_prompt(anchor.paper, _contribution(anchor), others,
                                                                    anchor_is_citing))

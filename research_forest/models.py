@@ -110,6 +110,10 @@ class Extraction(BaseModel):
     contribution: Paragraph = Field(description="One sentence")
     methods_proposed: _capped(MethodItem, 8)
     methods_used: _capped(Name, 20)
+    baselines: _capped(Name, 20) = Field(
+        default_factory=list,  # absent in extractions stored before baselines existed
+        description="Other methods/models compared against in the experiments (not the paper's own method, "
+                    "its variants or ablations; not datasets or metrics)")
     datasets: _capped(DatasetItem, 20)
     limitations: _capped(LimitationItem, 10)
     future_work: _capped(Sentence, 8)
@@ -121,6 +125,10 @@ class GapFill(BaseModel):
     """Only the fields gap filling can add; merged into an existing :class:`Extraction`."""
 
     methods_used: _capped(Name, 20)
+    baselines: _capped(Name, 20) = Field(
+        default_factory=list,  # absent in extractions stored before baselines existed
+        description="Other methods/models compared against in the experiments (not the paper's own method, "
+                    "its variants or ablations; not datasets or metrics)")
     datasets: _capped(DatasetItem, 20)
     limitations: _capped(LimitationItem, 10)
     future_work: _capped(Sentence, 8)

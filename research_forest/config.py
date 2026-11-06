@@ -40,6 +40,7 @@ CONFIG_KEYS: dict[tuple[str, str], tuple[str, type]] = {
     ("pipeline", "target_papers"): ("target_papers", int),
     ("pipeline", "max_candidates"): ("max_candidates", int),
     ("pipeline", "max_refs_per_paper"): ("max_refs_per_paper", int),
+    ("pipeline", "baseline_papers"): ("baseline_papers", int),
     ("fulltext", "enabled"): ("fulltext_enabled", bool),
     ("fulltext", "max_mb"): ("fulltext_max_mb", int),
     ("fulltext", "timeout"): ("fulltext_timeout", float),
@@ -127,6 +128,7 @@ class Settings:
     target_papers: int = 60
     max_candidates: int = 250
     max_refs_per_paper: int = 15
+    baseline_papers: int = 8  # papers added because graph papers compare against them (0 disables)
 
     # --- sandboxed full-text worker ---
     fulltext_enabled: bool = True

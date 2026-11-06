@@ -19,6 +19,7 @@ requests_per_second = 1.0     # client-side rate limit
 target_papers = 60            # default graph size (`build -n` overrides)
 max_candidates = 250          # upper bound on papers screened per screening step
 max_refs_per_paper = 15       # in-graph references judged for builds-on per citing paper
+baseline_papers = 8           # add up to N papers that graph papers compare against in their results (0 = off)
 
 [fulltext]
 enabled = true                # sandboxed download + BM25 gap filling
