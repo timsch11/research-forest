@@ -6,13 +6,15 @@ import asyncio
 import datetime
 import math
 from collections import Counter
-from typing import Iterable, Literal
+from collections.abc import Iterable
+from typing import Literal
 
 from ..models import MAX_REFINE_LIMIT, Paper, Scope, Screening
 from ..prompts import SYSTEM, prune_prompt, rescope_prompt, scope_prompt, screen_prompt
 from .context import Ctx, chunks
 
 SCREEN_BATCH = 25
+RETRY_PAUSE = 20.0  # seconds before retrying searches that failed (usually Semantic Scholar's rate limit)
 
 
 async def make_scope(ctx: Ctx, prompt: str) -> Scope:
@@ -40,12 +42,29 @@ async def search(ctx: Ctx, queries: list[str], seeds: Iterable[str] = (), per_qu
         finally:
             ctx.tick()
 
-    results = await asyncio.gather(*(ticked(ctx.s2.search(q, per_query, year_min)) for q in queries),
-                                   *(ticked(ctx.s2.match_title(t)) for t in seeds), return_exceptions=True)
+    def call(i: int):
+        return ctx.s2.search(queries[i], per_query, year_min) if i < len(queries) else \
+            ctx.s2.match_title(seeds[i - len(queries)])
+
+    results = list(await asyncio.gather(*(ticked(call(i)) for i in range(len(queries) + len(seeds))),
+                                        return_exceptions=True))
+    if failed := [i for i, res in enumerate(results) if isinstance(res, BaseException)]:
+        # Usually the shared rate limit: retry once, one at a time, after a pause.
+        ctx.log(f"Retrying {len(failed)} failed searches in {RETRY_PAUSE:.0f}s")
+        await asyncio.sleep(RETRY_PAUSE)
+        for i in failed:
+            try:
+                results[i] = await call(i)
+            except Exception as e:
+                results[i] = e
     papers, seed_ids = [], []
+    lost = [(queries + seeds)[i] for i, res in enumerate(results) if isinstance(res, BaseException)]
+    if lost:
+        ctx.warn(f"{len(lost)} of {len(results)} searches failed and were skipped, so the graph may miss papers "
+                 f"({'; '.join(repr(q[:60]) for q in lost[:4])}).{ctx.s2_hint()}")
     for i, res in enumerate(results):
         if isinstance(res, BaseException):
-            ctx.log(f"search failed for {(queries + seeds)[i]!r}: {res}")
+            continue
         elif i < len(queries):
             papers += res
         elif res:
@@ -86,7 +105,7 @@ async def screen(ctx: Ctx, ids: Iterable[str] | None = None, force: bool = False
     scores: dict[str, int] = {}
     for res in results:
         if isinstance(res, BaseException):
-            ctx.log(f"A screening batch failed and was skipped: {res}")
+            ctx.warn(f"A screening batch failed and its papers were skipped: {str(res)[:200]}")
         else:
             scores.update(res)
     ctx.store.set_relevance(ctx.project, scores)
@@ -164,9 +183,11 @@ async def fetch_links(ctx: Ctx, ids: list[str],
 
     results = await asyncio.gather(*(ticked(i) for i in ids), return_exceptions=True)
     others: list[str] = []
+    if failed := sum(isinstance(r, BaseException) for r in results):
+        ctx.warn(f"Could not fetch the {direction} of {failed} of {len(ids)} papers; their lineage may be "
+                 f"incomplete.{ctx.s2_hint()}")
     for paper_id, res in zip(ids, results):
         if isinstance(res, BaseException):
-            ctx.log(f"Could not fetch {direction} of paper {paper_id}: {res}")
             continue
         ctx.store.add_papers(ctx.project, (p for p, _ in res))
         ctx.store.add_citations(ctx.project, (link for _, link in res))

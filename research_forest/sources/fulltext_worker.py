@@ -83,7 +83,7 @@ def check_url(url: str, allow_private: bool = False) -> None:
         except (socket.gaierror, UnicodeError):
             if _proxied(scheme):
                 return
-            raise ValueError(f"cannot resolve {host!r}")
+            raise ValueError(f"cannot resolve {host!r}") from None
     for addr in addrs:
         addr = getattr(addr, "ipv4_mapped", None) or addr
         if not addr.is_global or addr.is_multicast:
@@ -133,7 +133,8 @@ _LIMITATION_HEADING = re.compile(
     r"broader impacts?|societal impacts?)\b", re.I)
 MAX_TABLES, MAX_SECTIONS, SECTION_CHARS, MAX_TABLE_REFS, MAX_BIBLIOGRAPHY = 15, 3, 2000, 80, 400
 # citation markers inside table cells: "[84]", "[12, 13]", "(Wang et al., 2020)"
-_CITE_MARK = re.compile(r"\s*\[\s*\d+(?:\s*[,–-]\s*\d+)*\s*\]|\s*\(?[A-Z][\w-]+(?: and [A-Z][\w-]+| et al\.)?,? \(?\d{4}[a-z]?\)\)?")
+_CITE_MARK = re.compile(r"\s*\[\s*\d+(?:\s*[,–-]\s*\d+)*\s*\]"  # [12], [3-5]
+                        r"|\s*\(?[A-Z][\w-]+(?: and [A-Z][\w-]+| et al\.)?,? \(?\d{4}[a-z]?\)\)?")  # (Kitaev et al., 2020)
 _ARXIV_ID = re.compile(r"arXiv[:\s]*(\d{4}\.\d{4,5})", re.I)
 
 

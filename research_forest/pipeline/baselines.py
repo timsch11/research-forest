@@ -109,9 +109,9 @@ def resolve(name: str, refs: list[Paper], table_refs: list[dict], proposers: dic
     variants = name_variants(name)
     for variant in variants:
         for tr in table_refs:
-            if _label_matches(variant, tr.get("label", "")):
-                if (p := match_reference(tr.get("title", ""), tr.get("arxiv"), refs)) and pid(p.id) != self_node:
-                    return pid(p.id), "table citation"
+            if (_label_matches(variant, tr.get("label", ""))
+                    and (p := match_reference(tr.get("title", ""), tr.get("arxiv"), refs)) and pid(p.id) != self_node):
+                return pid(p.id), "table citation"
     for variant in variants:
         if (node := proposers.get(entity_key(variant))) and node != self_node:
             return node, "proposed in graph"
@@ -218,9 +218,9 @@ async def lookup_bibliography(ctx: Ctx, limit: int = MAX_LOOKUPS) -> int:
             if p.arxiv_id and (k := by_arxiv.get(p.arxiv_id.split("v")[0])):
                 found[k] = p
         for k, (entry, _) in items:
-            if k not in found and (p := await ctx.s2.match_title(entry["title"].rstrip("."))):
-                if match_reference(entry["title"], None, [p]):  # S2's best match must really be it
-                    found[k] = p
+            if (k not in found and (p := await ctx.s2.match_title(entry["title"].rstrip(".")))
+                    and match_reference(entry["title"], None, [p])):  # S2's best match must really be it
+                found[k] = p
     except Exception as e:  # noqa: BLE001 - lookups are best effort (rate limits)
         ctx.log(f"Bibliography lookups stopped early: {e}")
     store.add_papers(project, found.values())

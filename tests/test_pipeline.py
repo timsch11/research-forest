@@ -1,8 +1,8 @@
 import re
 
 import pytest
-
 from conftest import OVERRIDES, FakeBackend, make_forest, op
+
 from research_forest.store import pid
 
 
@@ -348,7 +348,7 @@ async def test_normalisation_runs_only_when_entities_are_new(forest, fake_backen
     start = len(fake_backend.calls)
     await analyze.normalize(forest.ctx(project))
     assert calls_since(fake_backend, start, "Grouping") == []
-    for name, prompt in calls_since(fake_backend, 0, "Grouping"):
+    for _, prompt in calls_since(fake_backend, 0, "Grouping"):
         assert " — " not in prompt  # names only, no descriptions
 
 
@@ -419,6 +419,7 @@ async def test_refine_reports_progress(forest, fake_backend):
 
 async def test_llm_error_message_is_readable():
     from conftest import FakeBackend
+
     from research_forest.llm import LLM
     from research_forest.models import Scope
 
@@ -460,3 +461,37 @@ async def test_lineage_skips_weak_pairs_and_always_judges_influential_ones(setti
     assert next(e for e in f.store.edges(project, ["cites"]) if e["src"] == pid("F") and e["dst"] == pid("T"))[
         "data"]["judged"]
     await f.aclose()
+
+
+async def test_failed_searches_are_retried_then_reported(forest, monkeypatch, logs):
+    from research_forest.pipeline import discover
+    monkeypatch.setattr(discover, "RETRY_PAUSE", 0)
+    forest.on_log = lambda _p, m: logs.append(m)
+    progress = []
+    forest.on_progress = lambda _p, e: progress.append(e)
+    original, calls = forest.s2.search, []
+
+    async def flaky(query, *a, **kw):
+        calls.append(query)
+        if query == "linear" and calls.count(query) == 1 or query == "survey":
+            raise RuntimeError("Semantic Scholar request failed: 429")
+        return await original(query, *a, **kw)
+
+    monkeypatch.setattr(forest.s2, "search", flaky)
+    project = await build(forest)
+    assert calls.count("linear") == 2 and calls.count("survey") == 2  # each failure retried once
+    assert "L" in included(forest, project)  # found by the retried "linear" query
+    warning = next(m for m in logs if m.startswith("warning:"))
+    assert "1 of 4 searches failed" in warning and "'survey'" in warning and "S2_API_KEY" in warning
+    assert any("1 of 4 searches failed" in e.get("warning", "") for e in progress)
+
+
+async def test_job_progress_collects_warnings():
+    from research_forest.web.server import Jobs
+    jobs = Jobs()
+    jobs.report(1, {"job": "build", "plan": []})
+    for i in range(12):
+        jobs.report(1, {"warning": f"w{i}"})
+    assert jobs.progress[1]["warnings"] == [f"w{i}" for i in range(10)]  # capped
+    jobs.report(1, {"job": "refine", "plan": []})
+    assert jobs.progress[1]["warnings"] == []  # a new job starts clean

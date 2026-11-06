@@ -20,9 +20,10 @@ import json
 import re
 import tempfile
 import time
+from collections.abc import Callable
 from dataclasses import replace
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
 import httpx
 from pydantic import BaseModel, Field
@@ -33,7 +34,7 @@ from .models import Scope
 from .pipeline import analyze, baselines, discover
 from .prompts import SYSTEM, clip
 from .safety import data_block
-from .store import entity_key, pid
+from .store import entity_key
 
 DEFAULT_GOLD = Path("eval/gold.json")
 CITATION_SAMPLE = 30  # citing papers fetched per gold paper, for incoming citation contexts

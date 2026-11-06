@@ -3,8 +3,8 @@
 import datetime
 
 import httpx
-
 from conftest import make_forest, op, s2_handler
+
 from research_forest.models import Paper
 from research_forest.pipeline import followups
 from research_forest.pipeline.discover import influential_per_year, rank_score

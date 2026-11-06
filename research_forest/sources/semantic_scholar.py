@@ -6,7 +6,8 @@ import asyncio
 import logging
 import re
 import time
-from typing import Iterable, Literal
+from collections.abc import Iterable
+from typing import Literal
 
 import httpx
 

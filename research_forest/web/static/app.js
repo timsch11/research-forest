@@ -112,7 +112,7 @@ async function poll() {
   clearTimeout(state.polling);
   const p = await api(`/api/projects/${state.project}?since=${state.logSince}`);
   for (const l of p.log) {
-    $("log").insertAdjacentHTML("beforeend", `<li>${esc(l.msg)}</li>`);
+    $("log").insertAdjacentHTML("beforeend", `<li${l.msg.startsWith("warning:") ? ' class="warn"' : ""}>${esc(l.msg)}</li>`);
     state.logSince = Math.max(state.logSince, l.t);
   }
   $("log").scrollTop = $("log").scrollHeight;
@@ -139,7 +139,7 @@ const fmtTime = (s) => (s >= 60 ? `${Math.floor(s / 60)}m ${String(Math.floor(s 
 function renderProgress(p, running) {
   const box = $("progress");
   // visible while running, then for a few seconds after the job ends (longer if it failed)
-  const linger = p && p.error ? 30 : 10;
+  const linger = p && (p.error || p.warnings?.length) ? 30 : 10;
   const recent = p && p.finished && Date.now() / 1000 - p.finished < linger;
   clearTimeout(state.hideProgress);
   if (!p || !(running || recent)) {
@@ -165,6 +165,7 @@ function renderProgress(p, running) {
   $("progress-time").textContent = fmtTime(Math.max(0, elapsed));
   $("progress-label").textContent = p.error || p.label || "";
   $("progress-count").textContent = !p.error && p.total ? `${p.done} / ${p.total}` : "";
+  $("progress-warnings").innerHTML = (p.warnings || []).map((w) => `<li>${esc(w)}</li>`).join("");
 }
 
 /* ---------------------------------------------------------------- graph */

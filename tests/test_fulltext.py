@@ -51,7 +51,7 @@ def test_top_k_skips_adjacent_windows():
 
 def test_plain_text_and_pdf_magic():
     assert worker.extract_text(b"hello world", "text/plain") == "hello world"
-    with pytest.raises(Exception):
+    with pytest.raises(Exception):  # noqa: B017 - whatever pypdf raises for a corrupt file
         worker.extract_text(b"%PDF-1.4 garbage", "application/octet-stream")
 
 

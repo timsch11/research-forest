@@ -20,9 +20,10 @@ import json
 import threading
 import time
 from collections import defaultdict
-from datetime import datetime, timezone
+from collections.abc import Iterable
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any
 
 
 def _text(value: Any) -> str:
@@ -45,7 +46,7 @@ class CallLog:
                started: float | None = None, tokens: dict | None = None) -> None:
         out = _text(output)
         entry = {
-            "ts": datetime.now(timezone.utc).isoformat(timespec="milliseconds"),
+            "ts": datetime.now(UTC).isoformat(timespec="milliseconds"),
             "backend": backend, "model": model, "call": call, "attempt": attempt, "cached": cached,
             "seconds": round(time.monotonic() - started, 3) if started is not None else 0.0,
             "error": None if error is None else (str(error)[:2000] or type(error).__name__),

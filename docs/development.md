@@ -4,9 +4,14 @@
 
 ```bash
 pip install -e ".[dev]"
-pytest                      # ~230 tests, offline, a few seconds
+pytest                      # ~380 tests, offline, a few seconds
+ruff check research_forest tests scripts
 python scripts/demo.py      # browse a hand-made landscape without API keys
 ```
+
+CI ([`.github/workflows/ci.yml`](../.github/workflows/ci.yml)) runs ruff and the tests on Python
+3.11 and 3.13 for every pull request and every push to `main`. The ruff rules are configured in
+`pyproject.toml`.
 
 The tests use a deterministic fake LLM backend and a mocked Semantic Scholar API (see
 [`tests/conftest.py`](../tests/conftest.py)), so they need neither network nor credentials. The

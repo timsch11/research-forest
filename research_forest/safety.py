@@ -16,7 +16,7 @@ contexts, full-text passages, web pages) *and* everything an LLM derived from it
 from __future__ import annotations
 
 import re
-from typing import Iterable
+from collections.abc import Iterable
 from urllib.parse import urlsplit
 
 DATA_TAG = "untrusted_data"

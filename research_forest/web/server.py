@@ -18,9 +18,9 @@ import logging
 import secrets
 import time
 from collections import defaultdict, deque
+from collections.abc import Awaitable, Callable
 from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import Awaitable, Callable
 from urllib.parse import urlsplit
 
 from fastapi import FastAPI, HTTPException, Query, Request
@@ -64,7 +64,10 @@ class Jobs:
         """Merge a progress event: {"job", "plan"} starts a job; {"stage", "label", "done", "total"} updates it."""
         if "plan" in event:
             self.progress[project] = {**event, "started": time.time(), "stage": None, "label": "", "done": 0,
-                                      "total": 0, "finished": None, "error": None}
+                                      "total": 0, "finished": None, "error": None, "warnings": []}
+        elif "warning" in event:
+            if project in self.progress and len(warnings := self.progress[project]["warnings"]) < 10:
+                warnings.append(str(event["warning"])[:500])
         elif project in self.progress:
             self.progress[project].update(event)
 

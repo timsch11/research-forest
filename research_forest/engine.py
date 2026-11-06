@@ -6,7 +6,7 @@ import math
 import re
 import time
 from collections import Counter, defaultdict
-from typing import Callable
+from collections.abc import Callable
 
 from .config import Settings
 from .llm import LLM, make_llm

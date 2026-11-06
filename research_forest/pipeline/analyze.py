@@ -58,7 +58,7 @@ def citation_contexts(ctx: Ctx) -> tuple[dict[str, list[str]], dict[str, list[st
         if e["src"] in included:
             incoming[e["dst"]] += contexts
             own[e["src"]] += [c for c in contexts if evidence_score(c)]
-    for node, sentences in own.items():  # strongest evidence first (stable for equal scores)
+    for sentences in own.values():  # strongest evidence first (stable for equal scores)
         sentences.sort(key=evidence_score, reverse=True)
     return incoming, own
 

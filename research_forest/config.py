@@ -164,7 +164,7 @@ class Settings:
     llm_log_file: str = "research-forest-llm.jsonl"
 
     @classmethod
-    def load(cls, config: str | Path | None = None, env_file: str | Path = ".env", **overrides: Any) -> "Settings":
+    def load(cls, config: str | Path | None = None, env_file: str | Path = ".env", **overrides: Any) -> Settings:
         """Defaults < config file < ``overrides`` (CLI flags); secrets from ``.env`` < environment.
 
         ``config=None`` uses ``research-forest.toml`` if it exists; an explicit path must exist.

@@ -12,9 +12,10 @@ import sqlite3
 import threading
 import time
 from collections import defaultdict
+from collections.abc import Iterable, Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
-from typing import Any, Iterable, Iterator
+from typing import Any
 
 from .models import CitationLink, EntityKind, Extraction, Paper, Scope
 from .safety import sanitize

@@ -80,6 +80,9 @@ button:disabled { opacity: .5; cursor: default; }
 .progress-meta { display: flex; justify-content: space-between; gap: 12px; margin-top: 6px; font-size: 12px;
   color: var(--muted); }
 .progress.error .progress-meta { color: var(--danger); }
+.warnings { margin: 6px 0 0; padding-left: 18px; font-size: 12px; color: var(--limitation); }
+.warnings:empty { display: none; }
+#log li.warn { color: var(--limitation); }
 .empty { position: absolute; inset: 0; display: grid; place-items: center; color: var(--muted); }
 
 .results { list-style: none; padding: 0; margin: 6px 0; }

@@ -4,11 +4,11 @@ import json
 from pathlib import Path
 
 import pytest
-
 from conftest import FakeBackend, make_forest
+
 from research_forest.evaluation import evaluate, format_report, matches, score_paper
-from research_forest.models import CitationLink, DatasetItem, Extraction, Paper
-from research_forest.pipeline import analyze, discover
+from research_forest.models import CitationLink, Extraction, Paper
+from research_forest.pipeline import discover
 from research_forest.pipeline.analyze import citation_contexts, gaps, graph_vocabulary
 from research_forest.pipeline.discover import citations_per_year
 from research_forest.store import pid
@@ -272,7 +272,7 @@ async def test_limitation_sections_fill_limitations(settings, fake_backend, monk
     settings.fulltext_always_fill_datasets = True
     settings.fulltext_limitation_sections = True
     f = make_forest(settings, fake_backend)
-    project = await f.build("efficient attention")
+    await f.build("efficient attention")
     prompts_ = [u for n, u in fake_backend.calls if n == "GapFill"]
     assert prompts_ and all("limitations, conclusion and discussion sections" in u for u in prompts_)
     assert all("these fields: datasets, limitations" in u for u in prompts_)

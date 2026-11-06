@@ -108,7 +108,8 @@ def extract_prompt(p: Paper, contexts: list[str], own_sentences: list[str] = ())
     parts = [
         "Extract the paper's contribution, the methods it proposes (canonical short names) and the existing "
         "methods/architectures/algorithms it builds on or compares against (not datasets, not tasks), the "
-        "datasets/benchmarks it trains or evaluates on, the baselines it compares against, its limitations (stated by authors, reported by citing "
+        "datasets/benchmarks it trains or evaluates on, the baselines it compares against, its limitations "
+        "(stated by authors, reported by citing "
         "papers, or inferred) and future work. Use widely-used canonical names (e.g. 'ImageNet-1k', not "
         "'the ImageNet dataset'); the paper's own sentences are the best evidence for datasets. "
         "Add a field to `missing` only if the text gives essentially no information "
