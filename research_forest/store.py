@@ -49,6 +49,7 @@ CREATE VIRTUAL TABLE IF NOT EXISTS fts USING fts5(
 """
 
 PAPER_EDGE_KINDS = ("cites", "builds_on")
+FOLLOWUPS = "followups"  # meta key: paper id -> ids of the graph papers it was found to follow up
 ENTITY_EDGE_KINDS = ("proposes", "uses", "evaluates_on", "has_limitation", "addresses", "motivates", "about")
 
 
@@ -377,7 +378,8 @@ class Store:
             r = recs[0]
             info = {"id": node, "kind": "paper", **r.paper.model_dump(), "status": r.status,
                     "relevance": r.relevance,
-                    "extraction": r.extraction.model_dump() if r.extraction else None}
+                    "extraction": r.extraction.model_dump() if r.extraction else None,
+                    "followup": r.paper.id in self.meta(project, FOLLOWUPS, {})}
         else:
             rows = self.q("SELECT * FROM entities WHERE project = ? AND id = ?", (project, int(node[2:])))
             if not rows:

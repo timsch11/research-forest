@@ -201,7 +201,7 @@ def settings(tmp_path):
     # always_fill_datasets=False keeps gap filling to the cases the tests set up explicitly.
     return Settings(db_path=str(tmp_path / "test.forest.db"), target_papers=7, s2_rps=0,
                     fulltext_enabled=True, fulltext_prefer_html=False, fulltext_always_fill_datasets=False,
-                    baseline_papers=0, cache_llm=False)
+                    baseline_papers=0, followup_papers=0, cache_llm=False)
 
 
 def make_forest(settings, backend, handler=s2_handler, logs: list | None = None) -> Forest:

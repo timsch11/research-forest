@@ -46,6 +46,7 @@ class Paper(BaseModel):
     venue: str | None = None
     authors: list[str] = Field(default_factory=list)
     citation_count: int = 0
+    influential_count: int = 0  # citations Semantic Scholar classifies as highly influential
     url: str | None = None
     arxiv_id: str | None = None
     pdf_url: str | None = None
@@ -175,14 +176,14 @@ class Synthesis(BaseModel):
 
 
 RefineAction = Literal[
-    "search", "expand", "remove", "filter", "prune", "deepen", "rescope", "resynthesize"]
+    "search", "expand", "followups", "remove", "filter", "prune", "deepen", "rescope", "resynthesize"]
 MAX_REFINE_LIMIT = 50
 
 
 class RefineOp(BaseModel):
     action: RefineAction
     query: Short | None = Field(description="search: query; prune: criterion to REMOVE; rescope: new focus")
-    papers: _capped(int, 100) = Field(description="Paper refs for expand/remove/deepen")
+    papers: _capped(int, 100) = Field(description="Paper refs for expand/followups/remove/deepen")
     direction: Literal["references", "citations", "both"] | None
     limit: _clamped(1, MAX_REFINE_LIMIT) | None
     year_min: int | None

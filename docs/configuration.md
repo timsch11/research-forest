@@ -51,6 +51,9 @@ All settings are optional.
 | `max_candidates` | `250` | Upper bound on papers screened per screening step |
 | `max_refs_per_paper` | `15` | In-graph references judged for builds-on per citing paper |
 | `baseline_papers` | `8` | Add up to this many papers that graph papers compare against in their results (0 turns it off) |
+| `followup_papers` | `6` | Add up to this many recent papers that cite key graph papers influentially (0 turns it off) |
+| `followup_seeds` | `8` | Number of key graph papers whose recent citations are scanned, at one Semantic Scholar request each |
+| `followup_years` | `2` | How recent a follow-up must be, in publication years (2 means this year and last) |
 
 ### `[fulltext]`
 

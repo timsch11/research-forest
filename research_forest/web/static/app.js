@@ -275,6 +275,11 @@ async function showNode(id) {
   const n = await api(`/api/projects/${state.project}/nodes/${encodeURIComponent(id)}`);
   const groups = {};
   for (const nb of n.neighbors) (groups[`${nb.kind}:${nb.direction}`] ||= []).push(nb);
+  // influential citations (S2: used heavily) that aren't already shown as builds-on
+  for (const dir of ["out", "in"]) {
+    const shown = new Set((groups[`builds_on:${dir}`] || []).map((nb) => nb.node));
+    groups[`influential:${dir}`] = (groups[`cites:${dir}`] || []).filter((nb) => nb.data.influential && !shown.has(nb.node));
+  }
   const list = (key, title, fmt = (nb) => nodeLink(nb.node, nb.label)) => groups[key]?.length
     ? `<h4>${title}</h4><ul>${groups[key].map((nb) => `<li>${fmt(nb)}</li>`).join("")}</ul>` : "";
   const change = (nb) => `${nodeLink(nb.node, nb.label)}<span class="chip">${esc(nb.data.change_type)}</span>
@@ -289,12 +294,15 @@ async function showNode(id) {
   if (n.kind === "paper") {
     const ex = n.extraction;
     html += `<h2>${esc(n.title)}</h2>
-      <div class="muted">${esc([n.year, n.venue, `${n.citation_count} citations`].filter(Boolean).join(" · "))}</div>
+      <div class="muted">${esc([n.year, n.venue, `${n.citation_count} citations`].filter(Boolean).join(" · "))}${
+        n.followup ? ` <span class="chip" title="Found because it cites key graph papers influentially">recent follow-up</span>` : ""}</div>
       <div class="muted">${esc(n.authors.join(", "))}</div>
       <p>${[extLink(n.url, "Semantic Scholar ↗"), extLink(n.pdf_url, "PDF ↗")].filter(Boolean).join(" · ")}</p>
       ${ex ? `<h4>Contribution</h4><p>${esc(ex.contribution)}</p>` : `<p>${esc(n.tldr || n.abstract || "")}</p>`}
       ${list("builds_on:out", "Builds on", change)}
       ${list("builds_on:in", "Built upon by", change)}
+      ${list("influential:out", "Uses heavily")}
+      ${list("influential:in", "Used heavily by")}
       ${list("compares_with:out", "Compared against", baseline)}
       ${list("compares_with:in", "Used as a baseline by")}
       ${list("proposes:out", "Proposes")}

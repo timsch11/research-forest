@@ -11,7 +11,7 @@ from typing import Callable
 from .config import Settings
 from .llm import LLM, make_llm
 from .models import Answer, Paper, RefinePlan
-from .pipeline import analyze, baselines, discover
+from .pipeline import analyze, baselines, discover, followups
 from .pipeline.context import Ctx
 from .pipeline.synthesize import synthesize as run_synthesis
 from .prompts import SYSTEM, answer_prompt, clip, refine_prompt
@@ -23,7 +23,8 @@ CORE_FRACTION = 0.6  # share of the paper budget filled from search before snowb
 
 # Ordered stages of each job, shown as a stepper in the UI. process() covers the shared tail.
 PROCESS_STAGES = [("links", "Citations"), ("extract", "Analysis"), ("lineage", "Lineage"),
-                  ("normalize", "Duplicates"), ("baselines", "Baselines"), ("synthesize", "Open questions")]
+                  ("normalize", "Duplicates"), ("baselines", "Baselines"), ("followups", "Follow-ups"),
+                  ("synthesize", "Open questions")]
 JOB_STAGES = {
     "build": [("scope", "Scope"), ("search", "Search"), ("screen", "Screening"), ("snowball", "Snowball"),
               *PROCESS_STAGES],
@@ -89,7 +90,8 @@ class Forest:
             ctx.stage("snowball", "Snowballing: adding frequently co-cited references")
             await discover.snowball(ctx, target - len(self.store.papers(project, "included")))
             discover.select(ctx, target - len(self.store.papers(project, "included")))  # top up if snowball was thin
-            await self.process(project, synthesize=True, baseline_papers=self.settings.baseline_papers)
+            await self.process(project, synthesize=True, baseline_papers=self.settings.baseline_papers,
+                               followup_papers=self.settings.followup_papers)
             ctx.log(self._summary(project, started))
             self.store.set_status(project, "ready")
         except BaseException:
@@ -103,17 +105,23 @@ class Forest:
             await discover.refresh_metadata(ctx, todo)
             await discover.fetch_links(ctx, todo, "references")
 
-    async def process(self, project: int, synthesize: bool = False, baseline_papers: int = 0) -> None:
+    async def process(self, project: int, synthesize: bool = False, baseline_papers: int = 0,
+                      followup_papers: int = 0) -> None:
         """Bring derived data up to date for the current paper set (only new work is done).
 
-        ``baseline_papers``: afterwards, add up to this many papers that graph papers use as
-        baselines but the graph lacks, and analyse them too.
+        Afterwards, add up to ``baseline_papers`` papers that graph papers use as baselines but
+        the graph lacks, and up to ``followup_papers`` recent papers that cite key graph papers
+        influentially; both are analysed too.
         """
         ctx = self.ctx(project)
         analysed = await self._analyse(ctx, staged=True)
         if baseline_papers > 0:
             ctx.stage("baselines", "Adding papers that graph papers compare against")
             if await baselines.expand(ctx, baseline_papers):
+                analysed += await self._analyse(ctx, staged=False)
+        if followup_papers > 0:
+            ctx.stage("followups", "Looking for recent follow-up work on key papers")
+            if await followups.find(ctx, followup_papers):
                 analysed += await self._analyse(ctx, staged=False)
         self.store.prune_orphans(project)
         if synthesize or analysed:
@@ -205,6 +213,8 @@ class Forest:
                 discover.select(ctx, op.limit or 10, hits)
             case "expand" if ids:
                 await discover.expand(ctx, ids, op.direction or "both", op.limit or 5)
+            case "followups":
+                await followups.find(ctx, min(op.limit or 6, discover.MAX_PAPERS_PER_OP), ids or None, op.year_min)
             case "remove":
                 self.store.exclude_papers(ctx.project, ids)
             case "filter":

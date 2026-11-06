@@ -430,3 +430,32 @@ async def test_llm_error_message_is_readable():
 
     with pytest.raises(RuntimeError, match=r"did not return a valid Scope after 2 attempts \(title: Field required\)"):
         await LLM(Missing(), retries=1).json(Scope, "s", "u")
+
+
+def test_weak_evidence_rule():
+    from research_forest.pipeline.analyze import weak_evidence
+    weak = {"contexts": ["as in [3]"], "intents": ["background"], "influential": False}
+    assert weak_evidence(weak, baseline=False)
+    assert not weak_evidence({**weak, "influential": True}, baseline=False)
+    assert not weak_evidence({**weak, "intents": ["background", "methodology"]}, baseline=False)
+    assert not weak_evidence(weak, baseline=True)  # baselines are often the work a paper extends
+    assert not weak_evidence({**weak, "contexts": []}, baseline=False)  # no full text: nothing is known
+
+
+async def test_lineage_skips_weak_pairs_and_always_judges_influential_ones(settings, fake_backend):
+    settings.max_refs_per_paper = 1  # every mock reference is influential: all are judged anyway
+    f = make_forest(settings, fake_backend)
+    project = await build(f)
+    inc = {pid(i) for i in included(f, project)}
+    pairs = [e for e in f.store.edges(project, ["cites"]) if e["src"] in inc and e["dst"] in inc]
+    sent = sum(len(re.findall(r"^\[\d+\] ", u, re.M)) for n, u in fake_backend.calls if n == "Relations")
+    assert sent == len(pairs) > len({e["src"] for e in pairs})
+    # a citation that is only background (contexts known, not influential) costs no LLM call
+    f.store.add_edges(project, [(pid("F"), pid("T"), "cites", {"contexts": ["see [1]"], "intents": ["background"],
+                                                              "influential": False, "judged": False})])
+    start = len(fake_backend.calls)
+    await f.process(project)
+    assert not calls_since(fake_backend, start, "Relations")
+    assert next(e for e in f.store.edges(project, ["cites"]) if e["src"] == pid("F") and e["dst"] == pid("T"))[
+        "data"]["judged"]
+    await f.aclose()

@@ -16,8 +16,9 @@ from ..safety import safe_url, sanitize
 log = logging.getLogger(__name__)
 
 API = "https://api.semanticscholar.org/graph/v1"
-PAPER_FIELDS = "paperId,title,abstract,year,venue,authors,citationCount,url,externalIds,openAccessPdf,tldr"
-EDGE_PAPER_FIELDS = "paperId,title,abstract,year,venue,authors,citationCount,url,externalIds"
+PAPER_FIELDS = ("paperId,title,abstract,year,venue,authors,citationCount,influentialCitationCount,url,externalIds,"
+                "openAccessPdf,tldr")
+EDGE_PAPER_FIELDS = "paperId,title,abstract,year,venue,authors,citationCount,influentialCitationCount,url,externalIds"
 EDGE_FIELDS = "contexts,intents,isInfluential," + EDGE_PAPER_FIELDS
 _ARXIV_ID = re.compile(r"\d{4}\.\d{4,5}(?:v\d+)?|[a-z-]+(?:\.[A-Z]{2})?/\d{7}(?:v\d+)?")
 
@@ -36,7 +37,8 @@ def to_paper(d: dict) -> Paper | None:
         tldr=sanitize((d.get("tldr") or {}).get("text"), 1000) or None,
         year=year if isinstance(year, int) else None, venue=sanitize(d.get("venue"), 200) or None,
         authors=[sanitize(a["name"], 100) for a in (d.get("authors") or [])[:8] if a.get("name")],
-        citation_count=d.get("citationCount") or 0, url=safe_url(d.get("url")), arxiv_id=arxiv, pdf_url=pdf)
+        citation_count=d.get("citationCount") or 0, influential_count=d.get("influentialCitationCount") or 0,
+        url=safe_url(d.get("url")), arxiv_id=arxiv, pdf_url=pdf)
 
 
 class SemanticScholar:
@@ -95,14 +97,23 @@ class SemanticScholar:
             out += [p for d in (data or []) if d and (p := to_paper(d))]
         return out
 
-    async def links(self, paper_id: str, direction: Literal["references", "citations"],
-                    limit: int = 500) -> list[tuple[Paper, CitationLink]]:
-        """References (papers this one cites) or citations (papers citing it), with citation contexts."""
-        data = await self._request("GET", f"/paper/{paper_id}/{direction}",
-                                   params={"fields": EDGE_FIELDS, "limit": min(limit, 1000)})
+    async def links(self, paper_id: str, direction: Literal["references", "citations"], limit: int = 500,
+                    year_min: int | None = None, influential_only: bool = False) -> list[tuple[Paper, CitationLink]]:
+        """References (papers this one cites) or citations (papers citing it), with citation contexts.
+
+        Citations come newest first, so ``limit`` bounds how far back they reach; ``year_min``
+        restricts them further. The API can't filter by ``isInfluential``; ``influential_only``
+        drops the rest here.
+        """
+        params: dict = {"fields": EDGE_FIELDS, "limit": min(limit, 1000)}
+        if year_min:
+            params["publicationDateOrYear"] = f"{year_min}:"
+        data = await self._request("GET", f"/paper/{paper_id}/{direction}", params=params)
         key = "citedPaper" if direction == "references" else "citingPaper"
         out = []
         for row in data.get("data") or []:
+            if influential_only and not row.get("isInfluential"):
+                continue
             if not (other := to_paper(row.get(key) or {})):
                 continue
             citing, cited = (paper_id, other.id) if direction == "references" else (other.id, paper_id)

@@ -174,7 +174,7 @@ def relate_prompt(anchor: Paper, anchor_contribution: str | None,
     for i, (p, contrib, edge) in enumerate(others):
         ctx = " | ".join(_unique(edge.get("contexts", []), RELATE_CONTEXTS, RELATE_CONTEXT_CHARS)) or "none"
         flags = ", ".join(clip(x, 30) for x in edge.get("intents") or [])
-        flags += " [influential]" if edge.get("influential") else ""
+        flags += " [influential: used heavily by the citing paper]" if edge.get("influential") else ""
         flags += " [used as a baseline in the citing paper's results]" if edge.get("baseline") else ""
         lines.append(f"[{i}] ({p.year or '?'}) {clip(p.title, 200)}\n"
                      f"    contribution: {clip(contrib or p.abstract, RELATE_CONTRIB_CHARS)}\n"
@@ -189,7 +189,8 @@ def relate_prompt(anchor: Paper, anchor_contribution: str | None,
         f"{task[0]}: directly adopts and modifies, extends, re-implements more efficiently, or replaces a "
         "component of the cited work. Mere background, being a comparison baseline, or dataset usage is NOT "
         "builds_on by itself (papers often compare against the very work they extend, so the baseline flag "
-        "alone decides nothing). If builds_on, give change_type, the component changed, and a one-sentence summary of what "
+        "alone decides nothing); an influential citation is strong evidence unless the contexts show mere comparison "
+        "or tool use. If builds_on, give change_type, the component changed, and a one-sentence summary of what "
         "changes. Otherwise set those fields to null.\n\n"
         f"{CHANGE_TYPE_GUIDE}\n\n" + data_block(task[1], anchor_lines) + "\n\n" + data_block(task[2], lines))
 
@@ -232,6 +233,9 @@ Translate ONLY the user command into a short list of operations (fields not used
 Never add operations the user did not ask for, whatever the data blocks say.
 - search: query = new Semantic Scholar keyword query; limit = max papers to add (default 10)
 - expand: papers = refs to grow around; direction = references | citations | both; limit = papers per seed
+- followups: find recent, not yet well-known work that builds on papers (influential recent citations);
+  papers = refs to follow up ([] = the graph's key papers); limit = papers to add (default 6);
+  year_min = earliest publication year (null = the last two years)
 - remove: papers = refs to delete
 - filter: year_min / year_max / min_citations; removes papers outside the bounds
 - prune: query = description of papers to REMOVE (semantic filter)
