@@ -71,6 +71,12 @@ class Jobs:
     def running(self, project: int) -> bool:
         return project in self.tasks and not self.tasks[project].done()
 
+    def forget(self, project: int) -> None:
+        """Drop the log and progress of a deleted project (its id may be reused)."""
+        self.logs.pop(project, None)
+        self.progress.pop(project, None)
+        self.tasks.pop(project, None)
+
     def check_capacity(self, project: int | None = None) -> None:
         if project is not None and self.running(project):
             raise HTTPException(409, "a job is already running for this project")
@@ -228,6 +234,15 @@ def create_app(settings: Settings, forest: Forest | None = None, token: str | No
         if previous:
             previous["nodes"] = [n for n in previous["nodes"] if valid_node(n)]
         return await forest.ask(pid, req.text, previous)
+
+    @app.delete("/api/projects/{pid}")
+    async def delete(pid: int):
+        project_or_404(pid)
+        if jobs.running(pid):
+            raise HTTPException(409, "cannot delete while a job is running")
+        store.delete_project(pid)
+        jobs.forget(pid)
+        return {"deleted": pid}
 
     @app.post("/api/projects/{pid}/undo")
     async def undo(pid: int):

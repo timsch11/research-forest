@@ -218,5 +218,20 @@ def test_conflicting_actions_while_running(client, built, fake_backend, monkeypa
     assert client.get(f"/api/projects/{built}").json()["running"] is True
     assert client.post(f"/api/projects/{built}/undo").status_code == 409
     assert client.post(f"/api/projects/{built}/refine", json={"text": "again"}).status_code == 409
+    assert client.delete(f"/api/projects/{built}").status_code == 409
     gate.set()
     assert wait_ready(client, built)["status"] == "ready"
+
+
+def test_delete_project(client, built):
+    other = client.post("/api/projects", json={"prompt": "state space models"}).json()["id"]
+    wait_ready(client, other)
+    assert client.delete(f"/api/projects/{built}").json() == {"deleted": built}
+    assert client.get(f"/api/projects/{built}").status_code == 404
+    assert client.delete(f"/api/projects/{built}").status_code == 404
+    assert [p["id"] for p in client.get("/api/projects").json()] == [other]
+
+
+def test_delete_requires_same_origin(client, built):
+    assert client.delete(f"/api/projects/{built}", headers={"Origin": "http://evil.example"}).status_code == 403
+    assert client.get(f"/api/projects/{built}").status_code == 200

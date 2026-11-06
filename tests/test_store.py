@@ -156,3 +156,22 @@ def test_projects_are_isolated(store, project):
     store.add_papers(other, [Paper(id="A", title="Different")])
     assert store.papers(project, ids=["A"])[0].paper.title.startswith("Paper A")
     assert len(store.papers(other)) == 1
+
+
+def test_delete_project_removes_everything(store, project):
+    other = store.create_project("other")
+    store.add_papers(other, [Paper(id="A", title="Different")])
+    store.add_citations(project, [CitationLink(citing="B", cited="A")])
+    store.upsert_entity(project, "method", "FlashAttention")
+    store.snapshot(project, "x")
+    store.set_meta(project, "k", 1)
+    assert store.snapshots(project) and store.q("SELECT 1 FROM edges WHERE project = ?", (project,))
+    store.reindex(project)
+    assert store.delete_project(project)
+    assert store.project(project) is None and store.papers(project) == []
+    assert store.meta(project, "k") is None and store.snapshots(project) == []
+    assert not store.q("SELECT 1 FROM edges WHERE project = ?", (project,))
+    assert not store.q("SELECT 1 FROM entities WHERE project = ?", (project,))
+    assert not store.q("SELECT 1 FROM fts WHERE project = ?", (project,))
+    assert len(store.papers(other)) == 1  # other landscapes are untouched
+    assert not store.delete_project(project)
