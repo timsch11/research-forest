@@ -6,6 +6,8 @@ flowchart LR
   S --> R[Search & screen]
   R --> B[Snowball]
   B --> X[Extract]
+  X --> F[Follow-ups]
+  F -.-> X
   X -. missing info .-> G[(Gap filling)]
   G -.-> X
   X --> L[Lineage]
@@ -24,7 +26,9 @@ flowchart LR
    start at 3.
 3. **Select.** About 60% of the paper budget is filled from the ranked candidates. Ranking
    combines relevance, *citations per year since publication* (raw totals would favour old
-   papers) and how often papers already in the graph cite the candidate.
+   papers), *highly influential citations per year* (Semantic Scholar's label for citations by
+   papers that use the work heavily; these weigh more than mentions in passing) and how often
+   papers already in the graph cite the candidate.
 4. **Snowball.** References of the graph are fetched together with their *citation contexts*
    (the sentences in which one paper cites another) and intents. References cited by two or more
    graph papers are screened and added. The rest of the budget is then topped up from the
@@ -76,14 +80,29 @@ flowchart LR
    *build on* the cited one? If so, the edge gets a change type, the component that changed and
    a one-sentence summary. The prompt notes when the cited paper is one of the citing paper's
    baselines; that alone doesn't decide it, since papers often compare against the work they
-   extend. Pairs are batched (up to 15 per call) around a shared anchor paper.
+   extend. It also notes Semantic Scholar's *influential* flag, which is strong evidence.
+   Influential citations are always judged, beyond the `max_refs_per_paper` cap. Citations
+   that Semantic Scholar classified as background only (not methodology), that aren't
+   influential and whose cited paper isn't a baseline are skipped without an LLM call. On a
+   25-paper build this dropped 13% of the pairs and lost only two "builds on the Transformer"
+   edges. Because pairs are batched around shared papers, it saves prompt length rather than
+   calls. Pairs are batched (up to 15 per call) around a shared anchor paper.
    During a build that is usually the citing paper. After a refinement adds papers, it is usually
    the new papers, so older papers that cite them aren't re-sent one by one.
-9. **Normalise.** Duplicate methods and datasets are merged ("WT103" → "WikiText-103"). Exact
+9. **Follow-ups.** Search and snowballing favour papers that are already cited. To find
+   recent work that isn't visible yet, the citations of the graph's key papers (most built upon
+   and cited within the graph; `followup_seeds`) are fetched newest first, one request each,
+   restricted to the last `followup_years` years, and only the *influential* ones are kept. On
+   FlashAttention, the newest 1,000 citations hold about 70 influential ones, almost all with
+   no citations of their own. Papers that follow up several key papers rank first. They are
+   screened against the scope (influential citers include other fields that merely reuse a
+   method), ranked without citation counts, and up to `followup_papers` are added and analysed.
+   The refinement op `followups` does the same for chosen papers.
+10. **Normalise.** Duplicate methods and datasets are merged ("WT103" → "WikiText-103"). Exact
    duplicates are merged by key; aliases by one LLM call per entity type. After the first run,
    only *new* names are sent, together with existing names that share a word, a number or
    initials with them.
-10. **Synthesise.** Limitations from all papers are grouped into 5–15 **themes**. Each theme is
+11. **Synthesise.** Limitations from all papers are grouped into 5–15 **themes**. Each theme is
    linked to the papers that have it and to the papers that address it. From these themes come
    5–12 **open research questions**, each linked to its motivating themes and relevant papers.
 

@@ -245,6 +245,19 @@ def plan_relation_prompts(pairs: list[dict], cap: int) -> list[tuple[str, bool, 
             for i in range(0, len(group), cap)]
 
 
+def weak_evidence(data: dict, baseline: bool) -> bool:
+    """A citation not worth an LLM call: Semantic Scholar read it in the citing paper's full text
+    (there are contexts) and classified it, but only as background or result, not methodology;
+    it isn't influential and the cited paper isn't one of the citing paper's baselines.
+
+    Unclassified citations are still judged: on a real 25-paper build, skipping those too lost
+    2 more of 29 builds-on relations, while this rule lost only two "builds on the Transformer"
+    edges for 13% fewer pairs."""
+    intents = data.get("intents") or []
+    return (bool(data.get("contexts")) and bool(intents) and "methodology" not in intents
+            and not data.get("influential") and not baseline)
+
+
 async def relate(ctx: Ctx) -> int:
     """Classify unjudged in-graph citations as builds-on (with typed change) or plain citation."""
     included = {r.paper.id: r for r in ctx.store.papers(ctx.project, "included")}
@@ -256,14 +269,16 @@ async def relate(ctx: Ctx) -> int:
         if s != d and s in included and d in included and not e["data"].get("judged"):
             per_citing[s].append(e)
 
-    # Judge at most `cap` references per citing paper (the strongest evidence first); the rest
-    # are marked judged without a prompt.
+    # Pairs with weak evidence are marked judged without a prompt. Of the rest, at most `cap`
+    # references per citing paper are judged (strongest evidence first), plus every influential one.
     pairs, skipped = [], []
     for edges in per_citing.values():
+        weak = [e for e in edges if weak_evidence(e["data"], (e["src"], e["dst"]) in compared)]
+        edges = [e for e in edges if e not in weak]
         edges.sort(key=lambda e: (e["data"].get("influential", False), len(e["data"].get("contexts", []))),
                    reverse=True)
-        pairs += edges[:cap]
-        skipped += edges[cap:]
+        pairs += edges[:cap] + [e for e in edges[cap:] if e["data"].get("influential")]
+        skipped += weak + [e for e in edges[cap:] if not e["data"].get("influential")]
 
     async def one(anchor_id: str, anchor_is_citing: bool, batch: list[dict]) -> int:
         try:

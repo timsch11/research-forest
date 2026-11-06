@@ -98,18 +98,37 @@ async def screen(ctx: Ctx, ids: Iterable[str] | None = None, force: bool = False
 UNKNOWN_AGE = 5  # years assumed when a paper has no publication year
 
 
+def _age(paper: Paper, current_year: int) -> int:
+    return max(1, current_year - paper.year + 1 if paper.year else UNKNOWN_AGE)
+
+
 def citations_per_year(paper: Paper, current_year: int) -> float:
     """Citation velocity: total citations divided by years since publication (at least one).
 
     Ranking by raw citation counts favours old papers; a 2024 paper with 300 citations is
     usually more notable than a 2014 paper with 1,000.
     """
-    age = current_year - paper.year + 1 if paper.year else UNKNOWN_AGE
-    return paper.citation_count / max(1, age)
+    return paper.citation_count / _age(paper, current_year)
 
 
-def select(ctx: Ctx, count: int, pool: Iterable[str] | None = None) -> list[str]:
-    """Include up to ``count`` relevant candidates, ranked by relevance, citations per year and in-graph citations."""
+def influential_per_year(paper: Paper, current_year: int) -> float:
+    """Highly influential citations (Semantic Scholar's classifier) per year since publication."""
+    return paper.influential_count / _age(paper, current_year)
+
+
+def rank_score(paper: Paper, relevance: int, current_year: int) -> float:
+    """Relevance first; then citation velocity, where influential citations (papers that use the
+    work heavily) count more than mentions in passing."""
+    return (relevance * 10 + 1.5 * math.log1p(citations_per_year(paper, current_year))
+            + 2.0 * math.log1p(influential_per_year(paper, current_year)))
+
+
+def select(ctx: Ctx, count: int, pool: Iterable[str] | None = None, boost: dict[str, float] | None = None,
+           velocity: bool = True) -> list[str]:
+    """Include up to ``count`` relevant candidates, ranked by relevance, citation velocity and in-graph citations.
+
+    ``boost`` adds to a candidate's score (by paper id); ``velocity=False`` ignores citation
+    counts, for recent work that hasn't been cited yet."""
     if count <= 0:
         return []
     pool = None if pool is None else set(pool)
@@ -119,9 +138,9 @@ def select(ctx: Ctx, count: int, pool: Iterable[str] | None = None) -> list[str]
     compared = Counter(e["dst"] for e in ctx.store.edges(ctx.project, ["compares_with"]) if e["src"] in included)
     cands = [r for r in ctx.store.papers(ctx.project, "candidate")
              if (r.relevance or 0) >= 2 and (pool is None or r.paper.id in pool)]
-    year = datetime.date.today().year
-    cands.sort(key=lambda r: r.relevance * 10 + 2.0 * math.log1p(citations_per_year(r.paper, year))
-               + 3 * incoming[r.node] + 4 * compared[r.node], reverse=True)
+    year, boost = datetime.date.today().year, boost or {}
+    cands.sort(key=lambda r: (rank_score(r.paper, r.relevance, year) if velocity else r.relevance * 10)
+               + 3 * incoming[r.node] + 4 * compared[r.node] + boost.get(r.paper.id, 0), reverse=True)
     chosen = [r.paper.id for r in cands[:count]]
     ctx.store.update_papers(ctx.project, chosen, status="included")
     if chosen:

@@ -44,6 +44,9 @@ CONFIG_KEYS: dict[tuple[str, str], tuple[str, type]] = {
     ("pipeline", "max_candidates"): ("max_candidates", int),
     ("pipeline", "max_refs_per_paper"): ("max_refs_per_paper", int),
     ("pipeline", "baseline_papers"): ("baseline_papers", int),
+    ("pipeline", "followup_papers"): ("followup_papers", int),
+    ("pipeline", "followup_seeds"): ("followup_seeds", int),
+    ("pipeline", "followup_years"): ("followup_years", int),
     ("fulltext", "enabled"): ("fulltext_enabled", bool),
     ("fulltext", "max_mb"): ("fulltext_max_mb", int),
     ("fulltext", "timeout"): ("fulltext_timeout", float),
@@ -136,6 +139,9 @@ class Settings:
     max_candidates: int = 250
     max_refs_per_paper: int = 15
     baseline_papers: int = 8  # papers added because graph papers compare against them (0 disables)
+    followup_papers: int = 6  # recent papers added because they cite key graph papers influentially (0 disables)
+    followup_seeds: int = 8  # key graph papers whose recent influential citations are scanned (one request each)
+    followup_years: int = 2  # how recent a follow-up must be, in publication years (2 = this year and last)
 
     # --- sandboxed full-text worker ---
     fulltext_enabled: bool = True

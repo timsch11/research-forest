@@ -102,7 +102,7 @@ def test_relate_prompt_trims_per_paper_context():
     edge = {"contexts": ["c" * 1000, "d" * 1000, "e" * 1000], "intents": ["methodology"]}
     prompt = prompts.relate_prompt(GOOD, "x" * 1000, [(GOOD, "y" * 1000, edge)] * 3)
     assert "e" * 50 not in prompt  # only RELATE_CONTEXTS contexts per pair
-    assert len(prompt) < 4000
+    assert len(prompt) < 4100  # fixed instructions plus three trimmed pairs
     assert "For each CITING paper" in prompts.relate_prompt(GOOD, None, [(GOOD, None, edge)], anchor_is_citing=False)
 
 

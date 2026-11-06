@@ -22,6 +22,9 @@ target_papers = 60            # default graph size (`build -n` overrides)
 max_candidates = 250          # upper bound on papers screened per screening step
 max_refs_per_paper = 15       # in-graph references judged for builds-on per citing paper
 baseline_papers = 8           # add up to N papers that graph papers compare against in their results (0 = off)
+followup_papers = 6           # add up to N recent papers that cite key graph papers influentially (0 = off)
+followup_seeds = 8            # key graph papers scanned for recent influential citations (one request each)
+followup_years = 2            # how recent follow-ups must be (2 = this year and last)
 
 [fulltext]
 enabled = true                # sandboxed download + BM25 gap filling

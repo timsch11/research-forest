@@ -33,6 +33,7 @@ questions**. You then shape the graph in plain language, or ask it questions.
 | 🧬 **Lineage, not just citations** | Every builds-on edge records *what* changed: architecture, objective, training, data, efficiency, evaluation, theory or application. |
 | 🔬 **Structured extraction** | Methods, datasets, limitations (*stated*, *citing* or *inferred*) and future work for every paper. |
 | 🎯 **Reads only what it needs** | Starts from the abstract and the citation contexts. Missing details are found through snippet search or sandboxed BM25 passage search, never by reading whole papers. |
+| 🌱 **Finds work before it's famous** | Recent papers that cite the graph's key papers *influentially* (Semantic Scholar's signal that a paper uses the work heavily) are pulled in, even with zero citations of their own. |
 | 🧭 **Open questions** | Limitations are clustered into themes. Each theme is linked to the papers that have it and the papers that address it, and the themes are turned into open research questions. |
 | 💬 **Refine in plain language** | *"expand around FlashAttention"*, *"drop vision papers"*, *"only since 2021"*. Only new work is computed, and every step can be undone. |
 | 🔎 **Search and Q&A** | Instant keyword search over every node, plus answers that cite nodes in the graph. |
