@@ -7,7 +7,7 @@ import logging
 
 import httpx
 
-from .base import Backend, TransientLLMError
+from .base import Backend, Reply, TransientLLMError, usage
 
 # Structured-output modes, from most to least constrained. Servers that reject a
 # mode (HTTP 400/422) are transparently downgraded to the next one.
@@ -44,7 +44,7 @@ class OpenAIBackend(Backend):
             body["response_format"] = {"type": "json_object"}
         return body
 
-    async def generate(self, system: str, user: str, schema: dict, schema_name: str) -> str:
+    async def generate(self, system: str, user: str, schema: dict, schema_name: str) -> Reply:
         while True:
             try:
                 r = await self._client.post("/chat/completions", json=self._body(system, user, schema, schema_name))
@@ -56,7 +56,12 @@ class OpenAIBackend(Backend):
             if r.status_code == 429 or r.status_code >= 500:
                 raise TransientLLMError(f"HTTP {r.status_code}: {r.text[:200]}")
             r.raise_for_status()
-            return r.json()["choices"][0]["message"]["content"] or ""
+            body = r.json()
+            u = body.get("usage") or {}
+            return Reply(body["choices"][0]["message"]["content"] or "", usage(
+                input=u.get("prompt_tokens"), cached=(u.get("prompt_tokens_details") or {}).get("cached_tokens"),
+                output=u.get("completion_tokens"),
+                reasoning=(u.get("completion_tokens_details") or {}).get("reasoning_tokens")) or None)
 
     async def aclose(self) -> None:
         await self._client.aclose()

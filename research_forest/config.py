@@ -18,6 +18,7 @@ from typing import Any, Literal
 
 BackendName = Literal["openai", "codex", "claude-code"]
 BACKENDS = ("openai", "codex", "claude-code")
+EFFORTS = ("", "low", "medium", "high", "xhigh", "max")  # "" = the CLI's own default
 DEFAULT_CONFIG = "research-forest.toml"
 
 # Secret field -> environment variables, in priority order.
@@ -36,6 +37,8 @@ CONFIG_KEYS: dict[tuple[str, str], tuple[str, type]] = {
     ("llm", "timeout"): ("llm_timeout", float),
     ("llm", "retries"): ("llm_retries", int),
     ("llm", "cache"): ("cache_llm", bool),
+    ("llm", "effort"): ("llm_effort", str),
+    ("llm", "cli_user_config"): ("cli_user_config", bool),
     ("semantic_scholar", "requests_per_second"): ("s2_rps", float),
     ("pipeline", "target_papers"): ("target_papers", int),
     ("pipeline", "max_candidates"): ("max_candidates", int),
@@ -105,6 +108,8 @@ def read_config(path: str | Path) -> dict[str, Any]:
             values[field_name] = value
     if values.get("backend", "openai") not in BACKENDS:
         raise ConfigError(f"{path}: [llm] backend must be one of {', '.join(BACKENDS)}")
+    if values.get("llm_effort", "low") not in EFFORTS:
+        raise ConfigError(f"{path}: [llm] effort must be one of {', '.join(repr(e) for e in EFFORTS)}")
     return values
 
 
@@ -119,6 +124,8 @@ class Settings:
     llm_timeout: float = 300.0
     llm_retries: int = 2
     cache_llm: bool = True
+    llm_effort: str = "low"  # reasoning effort for the claude-code and codex CLIs ("" = the CLI's default)
+    cli_user_config: bool = False  # let the CLIs load your own config (CLAUDE.md, hooks, plugins, config.toml)
 
     # --- Semantic Scholar ---
     s2_api_key: str | None = None  # secret

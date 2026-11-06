@@ -12,6 +12,7 @@ import sqlite3
 import threading
 import time
 from abc import ABC, abstractmethod
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, TypeVar
 
@@ -28,6 +29,23 @@ class TransientLLMError(RuntimeError):
     """Retryable failure (rate limit, 5xx, CLI crash)."""
 
 
+@dataclass
+class Reply:
+    """A backend's output plus the token usage it reported (normalised by ``usage()``)."""
+
+    content: str | dict
+    usage: dict | None = None
+
+
+def usage(input: int | None = None, cached: int | None = None, output: int | None = None,
+          reasoning: int | None = None, cost_usd: float | None = None, turns: int | None = None) -> dict:
+    """Token usage in one shape for every backend. ``input`` includes cached prompt tokens;
+    ``output`` includes reasoning/thinking tokens. Unknown values are left out."""
+    values = {"input": input, "cached": cached, "output": output, "reasoning": reasoning,
+              "cost_usd": cost_usd, "turns": turns}
+    return {k: v for k, v in values.items() if isinstance(v, (int, float)) and not isinstance(v, bool)}
+
+
 class Backend(ABC):
     """Produces a JSON document conforming to ``schema`` for a system/user prompt."""
 
@@ -35,7 +53,7 @@ class Backend(ABC):
     model: str | None = None
 
     @abstractmethod
-    async def generate(self, system: str, user: str, schema: dict, schema_name: str) -> str | dict:
+    async def generate(self, system: str, user: str, schema: dict, schema_name: str) -> str | dict | Reply:
         ...
 
     async def aclose(self) -> None:  # pragma: no cover - optional hook
@@ -151,10 +169,12 @@ class LLM:
 
         prompt, last_err = user, None
         for attempt in range(self.retries + 1):
-            started, raw = time.monotonic(), None
+            started, raw, tokens = time.monotonic(), None, None
             try:
                 async with self._sem:
                     raw = await self.backend.generate(system, prompt, schema, name)
+                if isinstance(raw, Reply):
+                    raw, tokens = raw.content, raw.usage
                 if isinstance(raw, str) and len(raw) > MAX_OUTPUT_CHARS:
                     raise ValueError(f"output too large ({len(raw)} chars)")
                 data = parse_json(raw) if isinstance(raw, str) else raw
@@ -166,7 +186,8 @@ class LLM:
                 continue
             except (ValidationError, ValueError) as e:  # JSONDecodeError is a ValueError
                 last_err = e
-                self._record(name, attempt + 1, system, prompt, output=raw, error=_brief(e), started=started)
+                self._record(name, attempt + 1, system, prompt, output=raw, error=_brief(e), started=started,
+                             tokens=tokens)
                 log.warning("%s returned invalid %s (attempt %d/%d): %s — retrying", self.backend.name,
                             model.__name__, attempt + 1, self.retries + 1, _brief(e))
                 prompt = (f"{user}\n\nYour previous answer was invalid ({str(e)[:500]}). "
@@ -175,7 +196,7 @@ class LLM:
             except BaseException as e:
                 self._record(name, attempt + 1, system, prompt, output=raw, error=e, started=started)
                 raise
-            self._record(name, attempt + 1, system, prompt, output=raw, started=started)
+            self._record(name, attempt + 1, system, prompt, output=raw, started=started, tokens=tokens)
             if self.cache:
                 self.cache.put(key, result.model_dump(mode="json"))
             return result

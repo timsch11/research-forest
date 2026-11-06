@@ -135,6 +135,19 @@ async def test_openai_backend_request_shape():
     await backend.aclose()
 
 
+async def test_openai_backend_reports_usage():
+    body = {"choices": [{"message": {"content": json.dumps(SCOPE)}}],
+            "usage": {"prompt_tokens": 1200, "completion_tokens": 300, "prompt_tokens_details": {"cached_tokens": 1024},
+                      "completion_tokens_details": {"reasoning_tokens": 128}}}
+    backend = openai_backend(lambda r: httpx.Response(200, json=body))
+    reply = await backend.generate("s", "u", {}, "S")
+    assert reply.usage == {"input": 1200, "cached": 1024, "output": 300, "reasoning": 128}
+    bare = openai_backend(lambda r: httpx.Response(200, json={"choices": [{"message": {"content": "{}"}}]}))
+    assert (await bare.generate("s", "u", {}, "S")).usage is None  # servers without usage
+    await backend.aclose()
+    await bare.aclose()
+
+
 async def test_openai_backend_transient_errors():
     backend = openai_backend(lambda r: httpx.Response(503, text="busy"))
     with pytest.raises(TransientLLMError):
@@ -169,6 +182,8 @@ async def test_claude_code_backend_is_locked_down(monkeypatch):
     assert args[args.index("--tools") + 1] == ""
     assert {"--strict-mcp-config", "--disable-slash-commands", "--no-session-persistence"} <= set(args)
     assert args[args.index("--model") + 1] == "opus"
+    assert args[args.index("--setting-sources") + 1] == ""  # no CLAUDE.md, memory, hooks or plugins
+    assert args[args.index("--effort") + 1] == "low"
     assert captured["stdin"] == "hello" and "rf-claude-" in captured["cwd"]
     assert not Path(captured["cwd"]).exists()  # throwaway working dir is removed
 
@@ -188,6 +203,8 @@ async def test_codex_backend(monkeypatch):
 
     async def fake_run(args, stdin, cwd, timeout):
         captured.update(args=args, stdin=stdin)
+        option = next(a for a in args if a.startswith("model_instructions_file="))
+        captured["instructions"] = Path(json.loads(option.split("=", 1)[1])).read_text()
         schema = json.loads(Path(args[args.index("--output-schema") + 1]).read_text())
         assert schema["additionalProperties"] is False
         Path(args[args.index("--output-last-message") + 1]).write_text(json.dumps(SCOPE))
@@ -198,7 +215,53 @@ async def test_codex_backend(monkeypatch):
     assert (await LLM(CodexBackend(model="gpt-6-luna")).json(Scope, "SYS", "USER")).title == "t"
     args = captured["args"]
     assert args[args.index("--sandbox") + 1] == "read-only" and args[-1] == "-"
-    assert captured["stdin"].startswith("SYS") and captured["stdin"].endswith("USER")
+    assert captured["stdin"] == "USER" and captured["instructions"] == "SYS"  # system prompt replaces Codex's
+    assert {"--ignore-user-config", "--ephemeral", "--json"} <= set(args)
+    assert 'model_reasoning_effort="low"' in args and args[args.index("--model") + 1] == "gpt-6-luna"
+
+
+async def test_cli_backends_default_to_a_small_model_and_can_load_user_config(monkeypatch):
+    seen = []
+
+    async def fake_run(args, stdin, cwd, timeout):
+        seen.append(args)
+        if args[1] == "exec":
+            Path(args[args.index("--output-last-message") + 1]).write_text(json.dumps(SCOPE))
+            return ""
+        return json.dumps({"is_error": False, "structured_output": SCOPE})
+
+    monkeypatch.setattr(cli_mod, "_require", lambda b: b)
+    monkeypatch.setattr(cli_mod, "_run", fake_run)
+    assert ClaudeCodeBackend().model == "haiku" and CodexBackend().model == "gpt-6-luna"
+    await ClaudeCodeBackend(effort="", user_config=True).generate("s", "u", {}, "S")
+    await CodexBackend(effort="", user_config=True).generate("s", "u", {}, "S")
+    claude, codex = seen
+    assert "--setting-sources" not in claude and "--effort" not in claude
+    assert "--ignore-user-config" not in codex and not any("reasoning_effort" in a for a in codex)
+    settings = Settings(backend="claude-code", model="sonnet", llm_effort="medium", cli_user_config=True)
+    backend = make_backend(settings)
+    assert (backend.model, backend.effort, backend.user_config) == ("sonnet", "medium", True)
+
+
+async def test_cli_backends_report_token_usage(monkeypatch):
+    async def claude_run(args, stdin, cwd, timeout):
+        return json.dumps({"is_error": False, "structured_output": SCOPE, "num_turns": 2, "total_cost_usd": 0.002,
+                           "usage": {"input_tokens": 4, "cache_creation_input_tokens": 800,
+                                     "cache_read_input_tokens": 3356, "output_tokens": 900,
+                                     "output_tokens_details": {"thinking_tokens": 600}}})
+
+    monkeypatch.setattr(cli_mod, "_require", lambda b: b)
+    monkeypatch.setattr(cli_mod, "_run", claude_run)
+    reply = await ClaudeCodeBackend().generate("s", "u", {}, "S")
+    assert reply.content == SCOPE
+    assert reply.usage == {"input": 4160, "cached": 3356, "output": 900, "reasoning": 600, "cost_usd": 0.002,
+                           "turns": 2}
+    events = "\n".join([json.dumps({"type": "thread.started"}), "not json",
+                        json.dumps({"type": "turn.completed", "usage": {"input_tokens": 9000, "cached_input_tokens": 8000,
+                                                                         "output_tokens": 50, "reasoning_output_tokens": 20}}),
+                        json.dumps({"type": "turn.completed", "usage": {"input_tokens": 1000, "output_tokens": 5}})])
+    assert cli_mod._codex_usage(events) == {"input": 10000, "cached": 8000, "output": 55, "reasoning": 20}
+    assert cli_mod._codex_usage("") is None
 
 
 async def test_codex_without_output_is_transient(monkeypatch):
