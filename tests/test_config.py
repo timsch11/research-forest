@@ -64,7 +64,7 @@ def test_secrets_from_dotenv_and_terminal_wins(tmp_path, monkeypatch):
 def test_non_secret_env_vars_are_ignored(monkeypatch):
     monkeypatch.setenv("RF_TARGET_PAPERS", "999")
     monkeypatch.setenv("RF_BACKEND", "codex")
-    assert Settings.load().target_papers == 60 and Settings.load().backend == "openai"
+    assert Settings.load().target_papers == 60 and Settings.load().backend == "claude-code"
 
 
 @pytest.mark.parametrize("toml, message", [
