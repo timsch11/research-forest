@@ -25,8 +25,9 @@ Settings live in two places (see [Configuration](configuration.md)):
   It is safe to commit.
 - **`.env`** holds secrets only. Variables you `export` in the terminal override it.
 
+`research-forest.toml` is preset to the defaults; edit it in place. For secrets:
+
 ```bash
-cp research-forest.example.toml research-forest.toml
 cp .env.example .env               # then fill in OPENAI_API_KEY and S2_API_KEY
 ```
 

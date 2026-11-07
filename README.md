@@ -44,8 +44,8 @@ questions**. You then shape the graph in plain language, or ask it questions.
 
 ```bash
 pip install -e .
-cp .env.example .env                               # secrets: OPENAI_API_KEY, S2_API_KEY (optional)
-cp research-forest.example.toml research-forest.toml   # optional: backend, model, graph size, …
+cp .env.example .env      # secrets: OPENAI_API_KEY, S2_API_KEY (optional)
+# settings (backend, model, graph size, …) are in research-forest.toml, preset to the defaults
 
 research-forest serve               # opens on http://127.0.0.1:8000/?token=…
 ```

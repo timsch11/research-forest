@@ -21,8 +21,8 @@ def test_defaults_without_files():
     assert Settings.load() == Settings()
 
 
-def test_example_config_is_valid_and_matches_defaults():
-    values = read_config(ROOT / "research-forest.example.toml")
+def test_shipped_config_is_valid_and_matches_defaults():
+    values = read_config(ROOT / "research-forest.toml")
     defaults = Settings()
     assert values and all(getattr(defaults, k) == v for k, v in values.items())
     documented = {field for field, _ in CONFIG_KEYS.values()} - {"model"}  # model is commented out (no default)

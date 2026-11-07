@@ -1,7 +1,7 @@
 """Runtime configuration.
 
 * Settings come from a TOML config file (``research-forest.toml`` in the working directory, or
-  ``--config PATH``). See ``research-forest.example.toml`` for every option.
+  ``--config PATH``). The repository's ``research-forest.toml`` lists every option with its default.
 * Secrets come only from the environment: a ``.env`` file, overridden by variables set in the
   terminal. They are rejected in the config file so it can be committed safely.
 

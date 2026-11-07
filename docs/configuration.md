@@ -7,8 +7,8 @@ research-forest reads two files from the working directory:
 | `research-forest.toml` | All settings: backend, model, endpoint, limits, paths | Yes, it's safe to share |
 | `.env` | Secrets only: API keys and the web token | No, it's git-ignored |
 
-Start from the templates: `research-forest.example.toml` (every option with its default) and
-`.env.example`.
+`research-forest.toml` ships with every option set to its default, so edit it in place. For
+secrets, copy `.env.example` to `.env`.
 
 **Precedence**
 - Settings: built-in defaults < config file < CLI flags (`--backend`, `--model`, `--base-url`,
