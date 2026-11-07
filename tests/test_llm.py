@@ -285,9 +285,21 @@ async def test_run_helper_reports_failures_and_timeouts(tmp_path):
         await cli_mod._run([sys.executable, "-c", "import time; time.sleep(5)"], "", str(tmp_path), 0.3)
 
 
-def test_missing_cli_binary():
-    with pytest.raises(RuntimeError, match="not found"):
-        ClaudeCodeBackend(binary="definitely-not-installed-xyz")
+async def test_missing_cli_binary_fails_on_first_call_only():
+    for backend in (ClaudeCodeBackend(binary="definitely-not-installed-xyz"),
+                    CodexBackend(binary="definitely-not-installed-xyz")):  # creating it works: list/serve need no LLM
+        with pytest.raises(RuntimeError, match="not found on PATH.*backend"):
+            await backend.generate("s", "u", {}, "S")
+
+
+def test_cli_commands_work_without_the_default_backend_cli(tmp_path, monkeypatch, capsys):
+    from research_forest import cli
+    from research_forest.llm import cli as cli_mod
+    monkeypatch.setattr(cli_mod.shutil, "which", lambda _: None)  # neither claude nor codex installed
+    db = str(tmp_path / "x.forest.db")
+    cli.main(["--db", db, "list"])  # default backend is claude-code
+    cli.main(["--db", db, "--backend", "codex", "list"])
+    assert capsys.readouterr().out == ""
 
 
 def test_make_backend_dispatch(monkeypatch):
