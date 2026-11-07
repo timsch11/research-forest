@@ -137,7 +137,7 @@ class Settings:
     s2_rps: float = 1.0  # requests per second (unauthenticated pool is much lower)
 
     # --- pipeline ---
-    target_papers: int = 60
+    target_papers: int = 30
     max_candidates: int = 250
     max_refs_per_paper: int = 15
     baseline_papers: int = 8  # papers added because graph papers compare against them (0 disables)
