@@ -59,6 +59,20 @@ look? `python scripts/demo.py` serves an example landscape, with no API keys nee
   <img alt="Landscape view answering a question, with cited nodes highlighted in the graph" src="docs/assets/screenshot-ask-light.webp">
 </picture>
 
+## General information and advice
+
+**Prompting**: Try to be specific. If you are looking for a very specific subfield, I have found it quite useful to add one or more key paper titles to the prompt.
+
+**Model**: Use a capable but rather cheap model. I tested with GPT-6 Luna and Claude Haiku 5.5 which both do the job. These models are the default configuration for this project.
+
+**Semanticscholar API Key**: Builds often work well without one, but increase build time and occasionally impact graph quality. 
+
+## Limitations
+
+**LLMs**: This app aims to keep token usage rather low by extracting and sending only key parts and passages of a paper to the LLM. On the flip side, this means that some information can be missing. Also LLMs can hallucinate. 
+
+**Prompt injection**: This app takes several measures to reduce both the chances and the consequences of prompt injection. For maximum security I recommend running under linux with bubblewrap installed, for more information see [here](docs/security.md).
+
 ## How it works
 
 ```mermaid
