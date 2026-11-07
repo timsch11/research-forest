@@ -1,7 +1,7 @@
 """Runtime configuration.
 
 * Settings come from a TOML config file (``research-forest.toml`` in the working directory, or
-  ``--config PATH``). See ``research-forest.example.toml`` for every option.
+  ``--config PATH``). The repository's ``research-forest.toml`` lists every option with its default.
 * Secrets come only from the environment: a ``.env`` file, overridden by variables set in the
   terminal. They are rejected in the config file so it can be committed safely.
 
@@ -111,7 +111,7 @@ def read_config(path: str | Path) -> dict[str, Any]:
             if not isinstance(value, kind) or (kind is int and isinstance(value, bool)):
                 raise ConfigError(f"{path}: [{section}] {key} must be {kind.__name__}, got {value!r}")
             values[field_name] = value
-    if values.get("backend", "openai") not in BACKENDS:
+    if values.get("backend", "claude-code") not in BACKENDS:
         raise ConfigError(f"{path}: [llm] backend must be one of {', '.join(BACKENDS)}")
     if values.get("llm_effort", "medium") not in EFFORTS:
         raise ConfigError(f"{path}: [llm] effort must be one of {', '.join(repr(e) for e in EFFORTS)}")
@@ -121,7 +121,7 @@ def read_config(path: str | Path) -> dict[str, Any]:
 @dataclass
 class Settings:
     # --- inference ---
-    backend: BackendName = "openai"
+    backend: BackendName = "claude-code"
     model: str | None = None  # backend default when None
     openai_base_url: str = "https://api.openai.com/v1"
     openai_api_key: str | None = None  # secret

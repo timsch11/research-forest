@@ -1,11 +1,12 @@
-# research-forest configuration — copy to research-forest.toml (or pass --config PATH).
-# Every setting is optional; the values below are the defaults.
+# research-forest configuration, read from the working directory (or pass --config PATH).
+# The values below are the defaults: edit what you need. Every setting is optional, so you can
+# also delete lines or the whole file.
 # Secrets (API keys, the web token) do NOT go here: put them in .env (see .env.example)
 # or export them in your shell. CLI flags override this file.
 
 [llm]
-backend = "openai"            # "openai" (any OpenAI-compatible API), "claude-code" or "codex"
-# model = "gpt-6-luna"        # default: gpt-6-luna for openai and codex, haiku for claude-code
+backend = "claude-code"       # "claude-code", "codex" or "openai" (any OpenAI-compatible API)
+# model = "haiku"             # default: haiku for claude-code, gpt-6-luna for codex and openai
 base_url = "https://api.openai.com/v1"   # e.g. "http://localhost:11434/v1" for Ollama
 concurrency = 4               # parallel LLM calls
 timeout = 300                 # seconds per call

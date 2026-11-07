@@ -40,17 +40,32 @@ async def _run(args: list[str], stdin: str, cwd: str, timeout: float) -> str:
 def _require(binary: str) -> str:
     path = shutil.which(binary)
     if not path:
-        raise RuntimeError(f"'{binary}' CLI not found on PATH")
+        raise RuntimeError(f"'{binary}' CLI not found on PATH: install it, or choose another [llm] backend "
+                           "in research-forest.toml (or pass --backend)")
     return path
 
 
-class ClaudeCodeBackend(Backend):
+class _CLIBackend(Backend):
+    """Finds its CLI on first use, so commands that never call an LLM (list, search, serve, ...)
+    work without it installed."""
+
+    _binary: str
+    _path: str | None = None
+
+    @property
+    def _bin(self) -> str:
+        if self._path is None:
+            self._path = _require(self._binary)
+        return self._path
+
+
+class ClaudeCodeBackend(_CLIBackend):
     name = "claude-code"
     DEFAULT_MODEL = "haiku"
 
     def __init__(self, model: str | None = None, timeout: float = 300.0, binary: str = "claude", *,
                  effort: str = "medium", user_config: bool = False):
-        self.model, self.timeout, self._bin = model or self.DEFAULT_MODEL, timeout, _require(binary)
+        self.model, self.timeout, self._binary = model or self.DEFAULT_MODEL, timeout, binary
         self.effort, self.user_config = effort, user_config
 
     async def generate(self, system: str, user: str, schema: dict, schema_name: str) -> Reply:
@@ -93,13 +108,13 @@ def _codex_usage(jsonl: str) -> dict | None:
                  output=total.get("output_tokens"), reasoning=total.get("reasoning_output_tokens")) or None
 
 
-class CodexBackend(Backend):
+class CodexBackend(_CLIBackend):
     name = "codex"
     DEFAULT_MODEL = "gpt-6-luna"
 
     def __init__(self, model: str | None = None, timeout: float = 300.0, binary: str = "codex", *,
                  effort: str = "medium", user_config: bool = False):
-        self.model, self.timeout, self._bin = model or self.DEFAULT_MODEL, timeout, _require(binary)
+        self.model, self.timeout, self._binary = model or self.DEFAULT_MODEL, timeout, binary
         self.effort, self.user_config = effort, user_config
 
     async def generate(self, system: str, user: str, schema: dict, schema_name: str) -> Reply:

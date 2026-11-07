@@ -7,8 +7,8 @@ research-forest reads two files from the working directory:
 | `research-forest.toml` | All settings: backend, model, endpoint, limits, paths | Yes, it's safe to share |
 | `.env` | Secrets only: API keys and the web token | No, it's git-ignored |
 
-Start from the templates: `research-forest.example.toml` (every option with its default) and
-`.env.example`.
+`research-forest.toml` ships with every option set to its default, so edit it in place. For
+secrets, copy `.env.example` to `.env`.
 
 **Precedence**
 - Settings: built-in defaults < config file < CLI flags (`--backend`, `--model`, `--base-url`,
@@ -16,8 +16,7 @@ Start from the templates: `research-forest.example.toml` (every option with its 
 - Secrets: `.env` < variables exported in the terminal.
 
 The config file is validated when it's loaded. Unknown keys (typos), wrong types and invalid
-backends are reported with the offending `[section] key`. Secrets placed in the config file are
-rejected, so it can never leak a key into git.
+backends are reported with the offending `[section] key`. Place secrets only in the .env file.
 
 ## Config file (`research-forest.toml`)
 
@@ -27,7 +26,7 @@ All settings are optional.
 
 | Key | Default | Description |
 |---|---|---|
-| `backend` | `"openai"` | `"openai"`, `"claude-code"` or `"codex"` |
+| `backend` | `"claude-code"` | `"claude-code"`, `"codex"` or `"openai"` |
 | `model` | `gpt-6-luna` for `openai` and `codex`, `haiku` for `claude-code` | Model passed to the backend. The CLI backends deliberately don't use your CLI's default model, which is often the largest one |
 | `base_url` | `"https://api.openai.com/v1"` | OpenAI-compatible endpoint |
 | `concurrency` | `4` | Parallel LLM calls |
