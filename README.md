@@ -102,3 +102,13 @@ and LLM responses are cached on disk. [Read the details →](docs/how-it-works.m
 | [Configuration](docs/configuration.md) | Every setting and environment variable |
 | [Security](docs/security.md) | Threat model, injection defences, sandbox, residual risks |
 | [Development](docs/development.md) | Code layout, tests, extending backends and sources |
+
+## Acknowledgements
+
+- Special thanks to **[Semantic Scholar](https://www.semanticscholar.org/)** by the Allen Institute for AI: it provides
+  the paper data, citation contexts, influential-citation flags and TL;DRs through its
+  Academic Graph API ([Kinney et al., 2023](https://arxiv.org/abs/2301.10140)).
+- Thank you to **[arXiv](https://arxiv.org/)** for use of its open access interoperability.
+- The graph is drawn with **[Cytoscape.js](https://js.cytoscape.org/)**.
+- Built on [FastAPI](https://fastapi.tiangolo.com/), [Pydantic](https://docs.pydantic.dev/),
+  [httpx](https://www.python-httpx.org/) and [pypdf](https://pypdf.readthedocs.io/).
