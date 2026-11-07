@@ -26,7 +26,7 @@ All settings are optional.
 
 | Key | Default | Description |
 |---|---|---|
-| `backend` | `"openai"` | `"openai"`, `"claude-code"` or `"codex"` |
+| `backend` | `"claude-code"` | `"claude-code"`, `"codex"` or `"openai"` |
 | `model` | `gpt-6-luna` for `openai` and `codex`, `haiku` for `claude-code` | Model passed to the backend. The CLI backends deliberately don't use your CLI's default model, which is often the largest one |
 | `base_url` | `"https://api.openai.com/v1"` | OpenAI-compatible endpoint |
 | `concurrency` | `4` | Parallel LLM calls |

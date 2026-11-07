@@ -16,9 +16,9 @@ research-forest talks to LLMs through one interface. Pick the backend that suits
 
 | Backend | Setup | Good for |
 |---|---|---|
-| `openai` (default) | `OPENAI_API_KEY` in `.env` | OpenAI or any OpenAI-compatible server: vLLM, Ollama, OpenRouter, LM Studio, … |
-| `claude-code` | `backend = "claude-code"` in the config, and log in to the `claude` CLI | Using your Claude Code subscription |
+| `claude-code` (default) | Log in to the `claude` CLI | Using your Claude Code subscription |
 | `codex` | `backend = "codex"` in the config, and log in to the `codex` CLI | Using your Codex subscription |
+| `openai` | `backend = "openai"` in the config, `OPENAI_API_KEY` in `.env` | OpenAI or any OpenAI-compatible server: vLLM, Ollama, OpenRouter, LM Studio, … |
 
 Settings live in two places (see [Configuration](configuration.md)):
 - **`research-forest.toml`** holds settings like the backend, model, endpoint and graph size.
@@ -35,6 +35,7 @@ The `openai` backend defaults to `gpt-6-luna`. For a local server, edit the conf
 
 ```toml
 [llm]
+backend = "openai"
 base_url = "http://localhost:11434/v1"   # e.g. Ollama
 model = "qwen3:32b"
 ```
