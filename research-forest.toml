@@ -50,3 +50,4 @@ db_path = "research.forest.db"   # SQLite file holding all landscapes (`--db` ov
 [logging]
 llm_calls = true                 # record every LLM call: prompts, outputs, word counts, duration
 llm_log_file = "research-forest-llm.jsonl"   # one JSON object per line; `research-forest llm-log` summarises it
+llm_log_max_mb = 50           # then the log moves to <file>.1 (replacing the older one) and starts afresh

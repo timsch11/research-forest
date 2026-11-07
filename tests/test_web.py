@@ -235,3 +235,9 @@ def test_delete_project(client, built):
 def test_delete_requires_same_origin(client, built):
     assert client.delete(f"/api/projects/{built}", headers={"Origin": "http://evil.example"}).status_code == 403
     assert client.get(f"/api/projects/{built}").status_code == 200
+
+
+def test_ui_settings_expose_the_configured_default(client, settings):
+    s = client.get("/api/settings").json()
+    assert s == {"target_papers": settings.target_papers, "target_range": [5, 400]}
+    assert client.post("/api/projects", json={"prompt": "efficient attention", "target_papers": 4}).status_code == 422

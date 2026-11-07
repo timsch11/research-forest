@@ -102,3 +102,32 @@ def test_summary_and_cli(tmp_path, capsys, monkeypatch):
     assert "Extraction" in capsys.readouterr().out
     with pytest.raises(SystemExit, match="no LLM call log"):
         cli.main(["llm-log", str(tmp_path / "nope.jsonl")])
+
+
+def test_call_log_rotates_when_too_large(tmp_path):
+    path = tmp_path / "calls.jsonl"
+    log = CallLog(path, max_bytes=2000)
+    for i in range(10):
+        log.record(backend="b", model=None, call="Scope", attempt=1, system="s", user="x" * 300, output=str(i))
+    old, new = list(read_entries(tmp_path / "calls.jsonl.1")), list(read_entries(path))
+    assert old and new and len(old) + len(new) < 10  # older entries dropped, newest kept
+    assert new[-1]["output"] == "9" and path.stat().st_size <= 2000 + 1000
+
+
+def test_response_cache_is_capped(tmp_path, monkeypatch):
+    monkeypatch.setattr(JsonCache, "PRUNE_EVERY", 5)
+    cache = JsonCache(tmp_path / "c.db", max_entries=10)
+    for i in range(30):
+        cache.put(f"k{i}", i)
+    assert cache.get("k29") == 29 and cache.get("k0") is None
+    assert JsonCache(tmp_path / "c.db", max_entries=3).get("k26") is None  # reopening prunes too
+
+
+async def test_cache_key_includes_backend_settings(tmp_path, monkeypatch):
+    from research_forest.llm import cli as cli_mod
+    monkeypatch.setattr(cli_mod, "_require", lambda b: b)
+    low = cli_mod.ClaudeCodeBackend(effort="low")
+    assert low.cache_id() != cli_mod.ClaudeCodeBackend(effort="medium").cache_id()
+    assert low.cache_id() != cli_mod.ClaudeCodeBackend(effort="low", user_config=True).cache_id()
+    a, b = LLM(low), LLM(cli_mod.ClaudeCodeBackend(effort="medium"))
+    assert a._key({}, "s", "u") != b._key({}, "s", "u")

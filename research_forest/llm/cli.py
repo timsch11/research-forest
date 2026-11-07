@@ -52,6 +52,9 @@ class _CLIBackend(Backend):
     _binary: str
     _path: str | None = None
 
+    def cache_id(self) -> str:
+        return f"{super().cache_id()}\0effort={self.effort}\0user_config={self.user_config}"
+
     @property
     def _bin(self) -> str:
         if self._path is None:

@@ -43,7 +43,7 @@ model = "qwen3:32b"
 > [!TIP]
 > Get a free [Semantic Scholar API key](https://www.semanticscholar.org/product/api#api-key-form)
 > and put it in `.env` as `S2_API_KEY`. The shared unauthenticated rate limit is low, so a
-> 60-paper build is much faster with a key. Snippet search (used for gap filling) may also
+> build is much faster with a key. Snippet search (used for gap filling) may also
 > require one.
 
 ## Build your first landscape
@@ -59,7 +59,8 @@ research-forest serve
 2. Describe a research area.
 3. Click **Build graph**.
 
-The progress log shows each stage as the graph fills in. A 60-paper build takes a few minutes,
+The progress log shows each stage as the graph fills in. A 30-paper build (the default; leave
+the Papers field empty to use `target_papers` from the config) takes a few minutes,
 depending on the backend and the Semantic Scholar rate limit.
 
 **From the terminal:**

@@ -70,8 +70,11 @@ class Forest:
     # ------------------------------------------------------------- building
 
     async def build(self, prompt: str, target: int | None = None, project: int | None = None) -> int:
+        target = self.settings.target_papers if target is None else target
+        if target < 1:  # entry points (config, CLI, web API) enforce TARGET_RANGE; tests build tiny graphs
+            raise ValueError(f"target papers must be positive, got {target}")
         project = project or self.store.create_project(prompt)
-        ctx, target = self.ctx(project), target or self.settings.target_papers
+        ctx = self.ctx(project)
         started = time.monotonic()
         self.store.set_status(project, "building")
         self._begin(project, "build")

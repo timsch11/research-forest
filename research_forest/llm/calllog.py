@@ -37,8 +37,11 @@ def _words(text: str) -> int:
 
 
 class CallLog:
-    def __init__(self, path: str | Path):
+    def __init__(self, path: str | Path, max_bytes: int = 50 * 2**20):
+        """``max_bytes``: when the log grows past this, it is renamed to ``<file>.1`` (replacing the
+        previous one) and a new log is started, so at most about twice that is kept (0 = no limit)."""
         self.path = Path(path)
+        self.max_bytes = max_bytes
         self._lock = threading.Lock()
 
     def record(self, *, backend: str, model: str | None, call: str, attempt: int, system: str, user: str,
@@ -56,8 +59,11 @@ class CallLog:
             "system": system, "user": user, "output": out,
         }
         line = json.dumps(entry, ensure_ascii=False)
-        with self._lock, self.path.open("a", encoding="utf-8") as f:
-            f.write(line + "\n")
+        with self._lock:
+            if self.max_bytes and self.path.exists() and self.path.stat().st_size > self.max_bytes:
+                self.path.replace(self.path.with_name(self.path.name + ".1"))
+            with self.path.open("a", encoding="utf-8") as f:
+                f.write(line + "\n")
 
 
 def read_entries(path: str | Path) -> Iterable[dict]:

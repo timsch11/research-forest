@@ -494,3 +494,10 @@ async def test_job_progress_collects_warnings():
     assert jobs.progress[1]["warnings"] == [f"w{i}" for i in range(10)]  # capped
     jobs.report(1, {"job": "refine", "plan": []})
     assert jobs.progress[1]["warnings"] == []  # a new job starts clean
+
+
+async def test_build_rejects_non_positive_targets(forest):
+    for n in (0, -5):
+        with pytest.raises(ValueError, match="positive"):
+            await forest.build("efficient attention", n)
+    assert forest.store.projects() == []  # nothing half-created

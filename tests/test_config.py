@@ -64,7 +64,8 @@ def test_secrets_from_dotenv_and_terminal_wins(tmp_path, monkeypatch):
 def test_non_secret_env_vars_are_ignored(monkeypatch):
     monkeypatch.setenv("RF_TARGET_PAPERS", "999")
     monkeypatch.setenv("RF_BACKEND", "codex")
-    assert Settings.load().target_papers == 30 and Settings.load().backend == "claude-code"
+    defaults = Settings()
+    assert Settings.load().target_papers == defaults.target_papers and Settings.load().backend == defaults.backend
 
 
 @pytest.mark.parametrize("toml, message", [
@@ -72,7 +73,11 @@ def test_non_secret_env_vars_are_ignored(monkeypatch):
     ('[llm]\nOPENAI_API_KEY = "sk-x"\n', "secrets belong in .env"),
     ('[server]\napi_token = "t"\n', "secrets belong in .env"),
     ('[llm]\nbakend = "openai"\n', "unknown setting \\[llm\\] bakend"),
-    ('[pipeline]\ntarget_papers = "30"\n', "must be int"),
+    ('[pipeline]\ntarget_papers = "many"\n', "must be int"),
+    ('[pipeline]\ntarget_papers = 0\n', "between 5 and 400"),
+    ('[pipeline]\ntarget_papers = 9999\n', "between 5 and 400"),
+    ('[pipeline]\nfollowup_papers = -1\n', "must not be negative"),
+    ('[semantic_scholar]\nrequests_per_second = -1.0\n', "must not be negative"),
     ('[pipeline]\ntarget_papers = true\n', "must be int"),
     ('[fulltext]\nenabled = "yes"\n', "must be bool"),
     ('[llm]\nbackend = "gemini"\n', "backend must be one of"),
@@ -96,3 +101,53 @@ def test_cli_uses_config_file(tmp_path, capsys):
     (tmp_path / "research-forest.toml").write_text(f'[storage]\ndb_path = "{(tmp_path / "cfg.db").as_posix()}"\n')
     cli.main(["list"])
     assert (tmp_path / "cfg.db").exists()
+
+
+
+# ------------------------------------------------- risky settings from the config file
+
+
+def risky_config(tmp_path, body):
+    (tmp_path / "research-forest.toml").write_text(body)
+
+
+@pytest.mark.parametrize("body, flag", [
+    ('[llm]\nbackend = "openai"\nbase_url = "https://evil.example/v1"\n', ["--base-url", "https://evil.example/v1"]),
+    ('[fulltext]\nallow_private = true\n', ["--allow-private"]),
+])
+def test_risky_config_needs_consent_or_a_cli_flag(tmp_path, monkeypatch, capsys, body, flag):
+    risky_config(tmp_path, body)
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
+    monkeypatch.setattr("sys.stdin.isatty", lambda: False)
+    with pytest.raises(SystemExit, match="refusing to continue"):  # non-interactive: no silent consent
+        cli.main(["list"])
+    assert "warning:" in capsys.readouterr().err
+    monkeypatch.setattr("sys.stdin.isatty", lambda: True)
+    monkeypatch.setattr("builtins.input", lambda _: "n")
+    with pytest.raises(SystemExit, match="stopped"):
+        cli.main(["list"])
+    monkeypatch.setattr("builtins.input", lambda _: "y")
+    cli.main(["list"])  # consent given
+    monkeypatch.setattr("builtins.input", lambda _: pytest.fail("must not ask when the CLI flag is set"))
+    cli.main([*flag, "list"])
+
+
+@pytest.mark.parametrize("body, env", [
+    ('[llm]\nbackend = "openai"\nbase_url = "http://localhost:11434/v1"\n', {"OPENAI_API_KEY": "sk-test"}),
+    ('[llm]\nbackend = "openai"\nbase_url = "https://evil.example/v1"\n', {}),  # no key to leak
+    ('[llm]\nbackend = "claude-code"\nbase_url = "https://evil.example/v1"\n', {"OPENAI_API_KEY": "sk-test"}),
+    ('[llm]\nbackend = "openai"\nbase_url = "https://api.openai.com/v1"\n', {"OPENAI_API_KEY": "sk-test"}),
+])
+def test_harmless_configs_are_not_questioned(tmp_path, monkeypatch, body, env):
+    from research_forest.config import untrusted_settings
+    risky_config(tmp_path, body)
+    for k, v in env.items():
+        monkeypatch.setenv(k, v)
+    assert untrusted_settings(Settings.load(), None, set()) == []
+
+
+def test_build_rejects_out_of_range_paper_counts(capsys):
+    for n in ("0", "4", "401", "-3"):
+        with pytest.raises(SystemExit):
+            cli.main(["build", "x", "-n", n])
+    assert "between 5 and 400" in capsys.readouterr().err
