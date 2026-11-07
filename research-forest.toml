@@ -5,8 +5,8 @@
 # or export them in your shell. CLI flags override this file.
 
 [llm]
-backend = "openai"            # "openai" (any OpenAI-compatible API), "claude-code" or "codex"
-# model = "gpt-6-luna"        # default: gpt-6-luna for openai and codex, haiku for claude-code
+backend = "claude-code"            # "openai" (any OpenAI-compatible API), "claude-code" or "codex"
+# model = "haiku"        # default: gpt-6-luna for openai and codex, haiku for claude-code
 base_url = "https://api.openai.com/v1"   # e.g. "http://localhost:11434/v1" for Ollama
 concurrency = 4               # parallel LLM calls
 timeout = 300                 # seconds per call
