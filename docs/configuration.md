@@ -16,8 +16,7 @@ Start from the templates: `research-forest.example.toml` (every option with its 
 - Secrets: `.env` < variables exported in the terminal.
 
 The config file is validated when it's loaded. Unknown keys (typos), wrong types and invalid
-backends are reported with the offending `[section] key`. Secrets placed in the config file are
-rejected, so it can never leak a key into git.
+backends are reported with the offending `[section] key`. Place secrets only in the .env file.
 
 ## Config file (`research-forest.toml`)
 
