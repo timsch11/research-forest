@@ -64,7 +64,7 @@ def test_secrets_from_dotenv_and_terminal_wins(tmp_path, monkeypatch):
 def test_non_secret_env_vars_are_ignored(monkeypatch):
     monkeypatch.setenv("RF_TARGET_PAPERS", "999")
     monkeypatch.setenv("RF_BACKEND", "codex")
-    assert Settings.load().target_papers == 60 and Settings.load().backend == "claude-code"
+    assert Settings.load().target_papers == 30 and Settings.load().backend == "claude-code"
 
 
 @pytest.mark.parametrize("toml, message", [
@@ -72,7 +72,7 @@ def test_non_secret_env_vars_are_ignored(monkeypatch):
     ('[llm]\nOPENAI_API_KEY = "sk-x"\n', "secrets belong in .env"),
     ('[server]\napi_token = "t"\n', "secrets belong in .env"),
     ('[llm]\nbakend = "openai"\n', "unknown setting \\[llm\\] bakend"),
-    ('[pipeline]\ntarget_papers = "60"\n', "must be int"),
+    ('[pipeline]\ntarget_papers = "30"\n', "must be int"),
     ('[pipeline]\ntarget_papers = true\n', "must be int"),
     ('[fulltext]\nenabled = "yes"\n', "must be bool"),
     ('[llm]\nbackend = "gemini"\n', "backend must be one of"),
