@@ -15,11 +15,15 @@ import tomllib
 from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any, Literal
+from urllib.parse import urlsplit
 
 BackendName = Literal["openai", "codex", "claude-code"]
 BACKENDS = ("openai", "codex", "claude-code")
 EFFORTS = ("", "low", "medium", "high", "xhigh", "max")  # "" = the CLI's own default
 DEFAULT_CONFIG = "research-forest.toml"
+DEFAULT_BASE_URL = "https://api.openai.com/v1"
+TARGET_RANGE = (5, 400)  # papers per landscape (the web API enforces the same bounds)
+_LOOPBACK = {"localhost", "127.0.0.1", "::1"}
 
 # Secret field -> environment variables, in priority order.
 SECRETS: dict[str, tuple[str, ...]] = {
@@ -61,6 +65,7 @@ CONFIG_KEYS: dict[tuple[str, str], tuple[str, type]] = {
     ("storage", "db_path"): ("db_path", str),
     ("logging", "llm_calls"): ("llm_log_enabled", bool),
     ("logging", "llm_log_file"): ("llm_log_file", str),
+    ("logging", "llm_log_max_mb"): ("llm_log_max_mb", int),
 }
 
 
@@ -110,12 +115,41 @@ def read_config(path: str | Path) -> dict[str, Any]:
                 value = float(value)
             if not isinstance(value, kind) or (kind is int and isinstance(value, bool)):
                 raise ConfigError(f"{path}: [{section}] {key} must be {kind.__name__}, got {value!r}")
+            if kind in (int, float) and value < 0:
+                raise ConfigError(f"{path}: [{section}] {key} must not be negative, got {value!r}")
             values[field_name] = value
     if values.get("backend", "claude-code") not in BACKENDS:
         raise ConfigError(f"{path}: [llm] backend must be one of {', '.join(BACKENDS)}")
     if values.get("llm_effort", "medium") not in EFFORTS:
         raise ConfigError(f"{path}: [llm] effort must be one of {', '.join(repr(e) for e in EFFORTS)}")
+    if not TARGET_RANGE[0] <= values.get("target_papers", TARGET_RANGE[0]) <= TARGET_RANGE[1]:
+        raise ConfigError(f"{path}: [pipeline] target_papers must be between {TARGET_RANGE[0]} and "
+                          f"{TARGET_RANGE[1]}, got {values['target_papers']}")
     return values
+
+
+def untrusted_settings(settings: Settings, config: str | Path | None, from_cli: set[str]) -> list[str]:
+    """Risky settings that came from the config file rather than the command line.
+
+    The config file is read from the working directory, so running research-forest inside a
+    folder someone else controls must not silently send your API key to their server or switch
+    off the SSRF guard. Settings passed as CLI flags (``from_cli``) count as confirmed.
+    """
+    path = Path(config) if config else Path(DEFAULT_CONFIG)
+    if not path.is_file():
+        return []
+    file_values = read_config(path)
+    risks = []
+    if file_values.get("fulltext_allow_private") and "fulltext_allow_private" not in from_cli:
+        risks.append(f"{path} sets [fulltext] allow_private = true, which turns off the guard that keeps "
+                     "full-text downloads away from your local network (confirm with --allow-private)")
+    url = file_values.get("openai_base_url")
+    host = urlsplit(url).hostname or "" if url else ""
+    if (url and "openai_base_url" not in from_cli and settings.backend == "openai" and settings.openai_api_key
+            and host not in _LOOPBACK and host != urlsplit(DEFAULT_BASE_URL).hostname):
+        risks.append(f"{path} sends your OpenAI API key to {host or url!r} ([llm] base_url = {url!r}; "
+                     "confirm with --base-url)")
+    return risks
 
 
 @dataclass
@@ -166,6 +200,7 @@ class Settings:
     # --- logging ---
     llm_log_enabled: bool = True  # record every LLM call (input, output, sizes) as JSON lines
     llm_log_file: str = "research-forest-llm.jsonl"
+    llm_log_max_mb: int = 50  # then the log is renamed to <file>.1 (replacing the previous one) and restarted
 
     @classmethod
     def load(cls, config: str | Path | None = None, env_file: str | Path = ".env", **overrides: Any) -> Settings:

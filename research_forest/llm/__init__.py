@@ -24,7 +24,7 @@ def make_backend(settings: Settings) -> Backend:
 
 def make_llm(settings: Settings, backend: Backend | None = None) -> LLM:
     cache = JsonCache(settings.db_path + ".llmcache") if settings.cache_llm else None
-    call_log = CallLog(settings.llm_log_file) if settings.llm_log_enabled else None
+    call_log = CallLog(settings.llm_log_file, settings.llm_log_max_mb * 2**20) if settings.llm_log_enabled else None
     return LLM(backend or make_backend(settings), concurrency=settings.llm_concurrency,
                retries=settings.llm_retries, cache=cache, call_log=call_log)
 

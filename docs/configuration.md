@@ -28,7 +28,7 @@ All settings are optional.
 |---|---|---|
 | `backend` | `"claude-code"` | `"claude-code"`, `"codex"` or `"openai"` |
 | `model` | `gpt-6-luna` for `openai` and `codex`, `haiku` for `claude-code` | Model passed to the backend. The CLI backends deliberately don't use your CLI's default model, which is often the largest one |
-| `base_url` | `"https://api.openai.com/v1"` | OpenAI-compatible endpoint |
+| `base_url` | `"https://api.openai.com/v1"` | OpenAI-compatible endpoint. If the config file points the `openai` backend at another (non-local) host while an API key is set, research-forest warns and asks before sending the key there (see [below](#settings-that-need-confirmation)) |
 | `concurrency` | `4` | Parallel LLM calls |
 | `timeout` | `300` | Seconds per call |
 | `retries` | `2` | Retries after invalid output or transient errors |
@@ -63,7 +63,7 @@ All settings are optional.
 | `max_mb` | `25` | Maximum (decompressed) download size |
 | `timeout` | `90` | Seconds per document |
 | `memory_mb` | `1024` | Worker memory limit (POSIX) |
-| `allow_private` | `false` | Disables the SSRF guard. **Local testing only.** |
+| `allow_private` | `false` | Disables the SSRF guard. **Local testing only.** Needs confirmation when set in the config file; `--allow-private` sets it directly |
 | `prefer_html` | `true` | Try arXiv's HTML rendering before PDFs (cleaner text, readable tables) |
 | `limitation_sections` | `true` | When the full text is read, also take limitations from its Limitations, Conclusion, Discussion and Future-work sections |
 | `always_fill_datasets` | `true` | Search the full text for datasets for every paper. `false` does this only when fewer than 3 datasets were found |
@@ -82,6 +82,7 @@ All settings are optional.
 |---|---|---|
 | `llm_calls` | `true` | Record every LLM call as one JSON line: backend, model, call type, attempt, cache hit, duration, the full system and user prompt, the output or error, word and character counts, and the tokens the backend reported |
 | `llm_log_file` | `"research-forest-llm.jsonl"` | Where to write it (git-ignored). `research-forest llm-log` summarises it |
+| `llm_log_max_mb` | `50` | When the log grows past this, it moves to `<file>.1` (replacing the older one) and a new log starts. `0` keeps everything |
 
 Tokens are logged as the backend reports them: `input` (including prompt-cache reads and
 everything the CLI adds around our prompt), `cached`, `output` (including reasoning) and
@@ -99,3 +100,21 @@ that reports no usage only gets word and character counts (tokens ≈ 1.3 × wor
 The `.env` format is one `KEY=value` per line, and `#` comments, quotes and `export` prefixes
 are all fine. Only these secret variables are read from the environment. All other settings
 come from the config file.
+
+## Settings that need confirmation
+
+`research-forest.toml` is read from the folder you run research-forest in. So that a config file
+in a folder someone else controls can't quietly redirect your API key or weaken a security
+guard, two settings need your confirmation when they come from the file:
+
+- `[llm] base_url` pointing the `openai` backend at a host other than OpenAI or your own
+  machine, while an `OPENAI_API_KEY` is set (the key would be sent there);
+- `[fulltext] allow_private = true` (turns off the SSRF guard).
+
+research-forest prints a warning and asks `Continue anyway? [y/N]`. Without a terminal (cron,
+CI) it stops instead. Passing the setting as a flag (`--base-url URL`, `--allow-private`) counts
+as confirmation. Code that uses `Settings.load()` directly is not asked; call
+`config.untrusted_settings()` to apply the same check.
+
+The response cache (`<db_path>.llmcache`) keeps the 20,000 most recent responses.
+

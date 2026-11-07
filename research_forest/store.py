@@ -11,6 +11,7 @@ import re
 import sqlite3
 import threading
 import time
+import zlib
 from collections import defaultdict
 from collections.abc import Iterable, Iterator
 from contextlib import contextmanager
@@ -54,6 +55,7 @@ FOLLOWUPS = "followups"  # meta key: paper id -> ids of the graph papers it was 
 LAST_CHECKED = "last_checked"  # meta key: date (YYYY-MM-DD) of the last build or check for new work
 LATEST_NEW = "latest_new"  # meta key: {"since": date, "papers": [ids]} added by the last check for new work
 SNAPSHOT_META = (LAST_CHECKED, LATEST_NEW)  # meta restored by undo
+MAX_SNAPSHOTS = 20  # undo steps kept per project; a snapshot holds every stored paper (MBs uncompressed)
 ENTITY_EDGE_KINDS = ("proposes", "uses", "evaluates_on", "has_limitation", "addresses", "motivates", "about")
 
 
@@ -419,11 +421,12 @@ class Store:
                 for t in ("papers", "entities", "edges")}
         dump["scope"] = (self.project(project) or {}).get("scope")
         dump["meta"] = {k: self.meta(project, k) for k in SNAPSHOT_META}
+        data = zlib.compress(json.dumps(dump).encode(), 6)
         with self.tx() as c:
             version = c.execute("SELECT COALESCE(MAX(version), 0) + 1 FROM snapshots WHERE project = ?",
                                 (project,)).fetchone()[0]
-            c.execute("INSERT INTO snapshots VALUES (?, ?, ?, ?, ?)",
-                      (project, version, label, time.time(), json.dumps(dump)))
+            c.execute("INSERT INTO snapshots VALUES (?, ?, ?, ?, ?)", (project, version, label, time.time(), data))
+            c.execute("DELETE FROM snapshots WHERE project = ? AND version <= ?", (project, version - MAX_SNAPSHOTS))
         return version
 
     def snapshots(self, project: int) -> list[dict]:
@@ -437,7 +440,8 @@ class Store:
         rows = self.q(sql, (project, version) if version else (project,))
         if not rows:
             return None
-        snap, dump = rows[0], json.loads(rows[0]["data"])
+        snap, raw = rows[0], rows[0]["data"]
+        dump = json.loads(zlib.decompress(raw) if isinstance(raw, bytes) else raw)  # older snapshots: plain JSON
         with self.tx() as c:
             for table in ("papers", "entities", "edges"):
                 allowed = {r["name"] for r in c.execute(f"PRAGMA table_info({table})")}

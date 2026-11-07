@@ -65,13 +65,13 @@ as cheap as a fresh question.
 ## CLI reference
 
 ```text
-research-forest [--db FILE] [--backend openai|claude-code|codex] [--model NAME]
-                [--base-url URL] [--no-fulltext] [-v] COMMAND
+research-forest [--config FILE] [--db FILE] [--backend openai|claude-code|codex] [--model NAME]
+                [--base-url URL] [--no-fulltext] [--allow-private] [-v] COMMAND
 ```
 
 | Command | Description |
 |---|---|
-| `build PROMPT [-n PAPERS]` | Build a new landscape and print a summary |
+| `build PROMPT [-n PAPERS]` | Build a new landscape and print a summary (`-n`: 5–400 papers, default `target_papers`) |
 | `list` | List landscapes with their id and status |
 | `refine ID COMMAND` | Apply a natural-language refinement |
 | `ask ID QUESTION` | Answer a question from the graph |

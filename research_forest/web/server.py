@@ -28,7 +28,7 @@ from fastapi.responses import FileResponse, JSONResponse, RedirectResponse, Resp
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
-from ..config import Settings
+from ..config import TARGET_RANGE, Settings
 from ..engine import Forest
 from ..store import LATEST_NEW, valid_node
 
@@ -109,7 +109,7 @@ class Jobs:
 
 class BuildRequest(BaseModel):
     prompt: str = Field(min_length=3, max_length=2000)
-    target_papers: int | None = Field(default=None, ge=5, le=400)
+    target_papers: int | None = Field(default=None, ge=TARGET_RANGE[0], le=TARGET_RANGE[1])
 
 
 class TextRequest(BaseModel):
@@ -190,6 +190,11 @@ def create_app(settings: Settings, forest: Forest | None = None, token: str | No
             resp.set_cookie(COOKIE, token, httponly=True, samesite="strict", max_age=30 * 24 * 3600)
             return resp
         return FileResponse(STATIC / "index.html")
+
+    @app.get("/api/settings")
+    async def ui_settings():
+        """Defaults the UI shows, so it never hard-codes them (empty fields fall back to these)."""
+        return {"target_papers": settings.target_papers, "target_range": list(TARGET_RANGE)}
 
     @app.get("/api/projects")
     async def projects():

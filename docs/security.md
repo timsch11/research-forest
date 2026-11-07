@@ -11,7 +11,8 @@ hostile. Whatever an LLM produces from that input is treated as untrusted as wel
 | Stored XSS from hostile metadata | HTML escaping, http(s)-only links, strict CSP |
 | SSRF via open-access PDF URLs | Public-address-only guard on every redirect hop |
 | Malicious PDFs or HTML | Isolated, resource-limited worker process (+ bubblewrap) |
-| Cost or resource exhaustion | Input limits, output caps, refinement fan-out caps, job limit |
+| Cost or resource exhaustion | Input limits, output caps, refinement fan-out caps, job limit, capped snapshots, log and cache |
+| A config file in an untrusted folder redirecting your API key or disabling the SSRF guard | Warning plus explicit confirmation (or a CLI flag) |
 
 ## Prompt injection
 
@@ -31,7 +32,8 @@ hostile. Whatever an LLM produces from that input is treated as untrusted as wel
   covers second-order injection.
 - **Reference-only selection.** The LLM refers to items only through the integer refs it was
   given. Unknown or out-of-range refs and node handles are dropped.
-- **Damage control.** Every refinement takes a snapshot first (so it can be undone), and the
+- **Damage control.** Every refinement takes a snapshot first (so it can be undone; the last 20
+  are kept), and the
   log warns when a refinement removes more than half the graph. Instruction-like text in a
   paper is logged as a warning but kept as data, because papers *about* prompt injection
   legitimately contain such phrases.

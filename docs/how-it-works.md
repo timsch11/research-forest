@@ -118,7 +118,8 @@ published since the last check, which is recorded at every build and check:
 
 Candidates are screened and ranked without citation counts, since new papers have none yet. Up
 to `update_papers` are added and analysed, lineage and open questions are updated, and the new
-papers are listed and outlined in the UI until the next check. A check takes a snapshot first,
+papers are listed and outlined in the UI until the next check. A check takes a snapshot first
+(the last 20 snapshots are kept, compressed),
 so Undo reverts it, including the date of the last check.
 
 ## Lineage and change types
@@ -213,9 +214,9 @@ Work is tracked so that refinements only pay for what is new:
 LLM responses are cached on disk, keyed by backend, model, prompt and schema, so re-running an
 identical step costs nothing.
 
-A 60-paper build makes roughly 60 extraction calls, up to 60 lineage calls, 5–15 screening
-calls, plus a few scope, normalisation and synthesis calls. Papers with gaps take one extra
-small gap-fill call.
+A 30-paper build makes roughly 30 extraction calls and as many gap-fill calls, up to 30 lineage
+calls, 5–15 screening calls, plus a few scope, normalisation and synthesis calls. Baseline and
+follow-up papers (up to 8 and 6 by default) add their own extraction and lineage calls.
 
 ### Keeping prompts lean
 

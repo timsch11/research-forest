@@ -56,6 +56,10 @@ class Backend(ABC):
     async def generate(self, system: str, user: str, schema: dict, schema_name: str) -> str | dict | Reply:
         ...
 
+    def cache_id(self) -> str:
+        """Everything about this backend that changes its answers; part of the response-cache key."""
+        return f"{self.name}\0{self.model or ''}"
+
     async def aclose(self) -> None:  # noqa: B027 - optional hook  # pragma: no cover
         return None
 
@@ -105,12 +109,22 @@ def parse_json(text: str) -> Any:
 
 
 class JsonCache:
-    """Tiny thread-safe SQLite key/value cache for LLM responses."""
+    """Tiny thread-safe SQLite key/value cache for LLM responses, capped at ``max_entries``
+    (the oldest writes are dropped first)."""
 
-    def __init__(self, path: str | Path):
+    PRUNE_EVERY = 500  # writes between size checks
+
+    def __init__(self, path: str | Path, max_entries: int = 20_000):
         self._conn = sqlite3.connect(str(path), check_same_thread=False)
         self._conn.execute("CREATE TABLE IF NOT EXISTS llm_cache (k TEXT PRIMARY KEY, v TEXT NOT NULL)")
         self._lock = threading.Lock()
+        self.max_entries, self._writes = max_entries, 0
+        self._prune()
+
+    def _prune(self) -> None:
+        with self._lock, self._conn:  # INSERT OR REPLACE gives a new rowid, so low rowids are the oldest writes
+            self._conn.execute("DELETE FROM llm_cache WHERE rowid <= (SELECT MAX(rowid) FROM llm_cache) - ?",
+                               (self.max_entries,))
 
     def get(self, key: str) -> Any | None:
         with self._lock:
@@ -120,6 +134,9 @@ class JsonCache:
     def put(self, key: str, value: Any) -> None:
         with self._lock, self._conn:
             self._conn.execute("INSERT OR REPLACE INTO llm_cache VALUES (?, ?)", (key, json.dumps(value)))
+            self._writes += 1
+        if self._writes % self.PRUNE_EVERY == 0:
+            self._prune()
 
 
 def _brief(e: Exception) -> str:
@@ -150,7 +167,7 @@ class LLM:
 
     def _key(self, schema: dict, system: str, user: str) -> str:
         h = hashlib.sha256()
-        for part in (self.backend.name, self.backend.model or "", json.dumps(schema, sort_keys=True), system, user):
+        for part in (self.backend.cache_id(), json.dumps(schema, sort_keys=True), system, user):
             h.update(part.encode())
             h.update(b"\0")
         return h.hexdigest()

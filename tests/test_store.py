@@ -135,9 +135,10 @@ def test_snapshots_roundtrip(store, project):
 
 def test_restore_ignores_unknown_columns(store, project):
     import json
+    import zlib
     store.snapshot(project, "s")
     row = store.q("SELECT data FROM snapshots WHERE project = ?", (project,))[0]
-    dump = json.loads(row["data"])
+    dump = json.loads(zlib.decompress(row["data"]))  # written back as plain JSON: older snapshots restore too
     for r in dump["papers"]:
         r["evil); DROP TABLE papers; --"] = 1
     with store.tx() as c:
@@ -175,3 +176,14 @@ def test_delete_project_removes_everything(store, project):
     assert not store.q("SELECT 1 FROM fts WHERE project = ?", (project,))
     assert len(store.papers(other)) == 1  # other landscapes are untouched
     assert not store.delete_project(project)
+
+
+def test_snapshots_are_compressed_and_capped(store, project):
+    from research_forest.store import MAX_SNAPSHOTS
+    for i in range(MAX_SNAPSHOTS + 5):
+        store.snapshot(project, f"s{i}")
+    labels = [s["label"] for s in store.snapshots(project)]
+    assert len(labels) == MAX_SNAPSHOTS and labels[0] == f"s{MAX_SNAPSHOTS + 4}" and "s4" not in labels
+    raw = store.q("SELECT data FROM snapshots WHERE project = ? LIMIT 1", (project,))[0]["data"]
+    assert isinstance(raw, bytes)
+    assert store.restore(project) == f"s{MAX_SNAPSHOTS + 4}" and len(store.papers(project)) == 3

@@ -407,6 +407,10 @@ document.addEventListener("click", (e) => {
   if (el) focusNode(el.dataset.node);
 });
 $("project-select").addEventListener("change", (e) => openProject(e.target.value));
+api("/api/settings").then((s) => {  // the configured default applies when the field is left empty
+  $("target").placeholder = `${s.target_papers} (default)`;
+  [$("target").min, $("target").max] = s.target_range;
+}).catch(() => {});
 $("new-btn").addEventListener("click", showStart);
 $("update-btn").addEventListener("click", async () => {
   if (!state.project) return;

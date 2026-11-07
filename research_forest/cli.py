@@ -9,16 +9,43 @@ import logging
 import sys
 from pathlib import Path
 
-from .config import ConfigError, Settings
+from .config import TARGET_RANGE, ConfigError, Settings, untrusted_settings
 from .engine import Forest
 
 
 def _settings(args: argparse.Namespace) -> Settings:
+    if (cached := getattr(args, "_settings", None)) is not None:
+        return cached
+    flags = {"backend": args.backend, "model": args.model, "openai_base_url": args.base_url, "db_path": args.db,
+             "fulltext_enabled": False if args.no_fulltext else None,
+             "fulltext_allow_private": True if args.allow_private else None}
     try:
-        return Settings.load(args.config, backend=args.backend, model=args.model, openai_base_url=args.base_url,
-                             db_path=args.db, fulltext_enabled=False if args.no_fulltext else None)
+        settings = Settings.load(args.config, **flags)
+        risks = untrusted_settings(settings, args.config, {k for k, v in flags.items() if v is not None})
     except ConfigError as e:
         raise SystemExit(f"research-forest: {e}") from None
+    if risks:
+        _confirm(risks)
+    args._settings = settings
+    return settings
+
+
+def _confirm(risks: list[str]) -> None:
+    """Explicit consent for risky settings from the config file (a CLI flag counts as consent)."""
+    for risk in risks:
+        print(f"research-forest: warning: {risk}", file=sys.stderr)
+    if not sys.stdin.isatty():
+        raise SystemExit("research-forest: refusing to continue without confirmation; pass the flags above "
+                         "on the command line if this is intended")
+    if input("Continue anyway? [y/N] ").strip().lower() not in ("y", "yes"):
+        raise SystemExit("research-forest: stopped")
+
+
+def _papers(value: str) -> int:
+    n = int(value)
+    if not TARGET_RANGE[0] <= n <= TARGET_RANGE[1]:
+        raise argparse.ArgumentTypeError(f"must be between {TARGET_RANGE[0]} and {TARGET_RANGE[1]}")
+    return n
 
 
 async def _with_forest(args: argparse.Namespace, fn):
@@ -50,12 +77,15 @@ def main(argv: list[str] | None = None) -> None:
     p.add_argument("--model", default=None)
     p.add_argument("--base-url", default=None, help="OpenAI-compatible API base URL")
     p.add_argument("--no-fulltext", action="store_true", help="disable full-text gap filling")
+    p.add_argument("--allow-private", action="store_true",
+                   help="let full-text downloads reach private/local addresses (turns off the SSRF guard)")
     p.add_argument("-v", "--verbose", action="store_true")
     sub = p.add_subparsers(dest="cmd", required=True)
 
     b = sub.add_parser("build", help="build a new landscape from a prompt")
     b.add_argument("prompt")
-    b.add_argument("-n", "--papers", type=int, default=None, help="target number of papers")
+    b.add_argument("-n", "--papers", type=_papers, default=None,
+                   help=f"target number of papers ({TARGET_RANGE[0]}-{TARGET_RANGE[1]})")
     r = sub.add_parser("refine", help="apply a natural-language refinement")
     r.add_argument("project", type=int)
     r.add_argument("command")
